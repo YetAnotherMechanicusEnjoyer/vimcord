@@ -3,6 +3,7 @@ use reqwest::Client;
 use crate::{Error, Message};
 
 pub async fn get_channel_messages(
+    client: &Client,
     channel_id: &str,
     token: &str,
     around: Option<String>,
@@ -24,8 +25,6 @@ pub async fn get_channel_messages(
     if let Some(limit) = limit {
         api_url.push_str(format!("limit={}", limit.as_str()).as_str());
     }
-
-    let client = Client::new();
 
     let response = client
         .get(&api_url)
