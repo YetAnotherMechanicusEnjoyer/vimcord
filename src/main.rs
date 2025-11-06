@@ -1,11 +1,41 @@
-use std::{env, process};
+use std::{env, io, process};
 
-use crate::{api::message::get_channel_messages::get_channel_messages, model::channel::Message};
+use crossterm::{
+    execute,
+    terminal::{EnterAlternateScreen, enable_raw_mode},
+};
+use ratatui::{Terminal, prelude::CrosstermBackend};
+use reqwest::{Client, StatusCode};
+
+use crate::{
+    api::message::{create_message::create_message, get_channel_messages::get_channel_messages},
+    model::{
+        channel::{Channel, Message},
+        guild::Guild,
+    },
+};
 
 pub mod api;
 pub mod model;
 
 pub type Error = Box<dyn std::error::Error>;
+
+#[derive(Debug)]
+enum AppState {
+    SelectingGuild,
+    SelectingChannel(String),
+    Chatting(String),
+}
+
+struct App {
+    state: AppState,
+    guilds: Vec<Guild>,
+    channels: Vec<Channel>,
+    messages: Vec<Message>,
+    input: String,
+    selection_index: usize,
+    status_message: String,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -26,23 +56,39 @@ async fn main() -> Result<(), Error> {
             .leak()
     });
 
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+
+    let client = Client::new();
+
     let token: &str = &env::var(ENV_TOKEN).unwrap_or_else(|_| {
         eprintln!("Error: DISCORD_TOKEN variable is missing.");
         process::exit(1);
     });
 
-    let messages: Vec<Message> =
-        get_channel_messages(channel_id, token, None, None, None, limit.cloned()).await?;
+    let response = create_message(
+        &client,
+        channel_id,
+        token,
+        Some("test rust".to_string()),
+        false,
+    )
+    .await?;
 
-    messages.iter().for_each(|msg| {
-        let content = msg
-            .content
-            .clone()
-            .unwrap_or_else(|| "(*Non-text message*)".to_string());
-        println!("{} -> {content}", msg.author.username);
-    });
-
-    messages.iter().for_each(|msg| println!("{msg:?}"));
-
-    Ok(())
+    match response.status() {
+        StatusCode::OK | StatusCode::CREATED => {
+            println!("[✅ Success] Message sent to {channel_id}!");
+            Ok(())
+        }
+        status => {
+            let body = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "No response body found".to_string());
+            Err(format!("Discord API Error: Status {status} - Response Body: {body}").into())
+        }
+    }
 }
