@@ -5,7 +5,13 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, enable_raw_mode},
 };
-use ratatui::{Terminal, crossterm::terminal::disable_raw_mode, prelude::CrosstermBackend};
+use ratatui::{
+    Terminal,
+    crossterm::terminal::disable_raw_mode,
+    prelude::CrosstermBackend,
+    style::{Style, Stylize},
+    widgets::{List, ListItem, ListState},
+};
 use reqwest::Client;
 use tokio::{
     sync::{Mutex, mpsc},
@@ -52,7 +58,7 @@ struct App {
     channels: Vec<Channel>,
     messages: Vec<Message>,
     input: String,
-    _selection_index: usize,
+    selection_index: usize,
     status_message: String,
 }
 
@@ -80,7 +86,7 @@ async fn main() -> Result<(), Error> {
         channels: Vec::new(),
         messages: Vec::new(),
         input: String::new(),
-        _selection_index: 0,
+        selection_index: 0,
         status_message: "Loading servers...".to_string(),
     }));
 
@@ -157,33 +163,66 @@ async fn main() -> Result<(), Error> {
             .constraints([Constraint::Percentage(90), Constraint::Percentage(10)].as_ref())
             .split(area);
 
-        let main_content = match app.state {
+        match &app.state {
             AppState::SelectingGuild => {
-                format!("Select a server: {} servers loaded", app.guilds.len())
-            }
-            AppState::SelectingChannel(_) => {
-                format!("Select a channel: {} channels loaded", app.channels.len())
-            }
-            AppState::Chatting(_) => app
-                .messages
-                .iter()
-                .map(|m| {
-                    format!(
-                        "[{}] {}: {}",
-                        m.timestamp.split('T').nth(1).unwrap_or(""),
-                        m.author.username,
-                        m.content.as_deref().unwrap_or("(*non-text*)")
+                let items: Vec<ListItem> = app
+                    .guilds
+                    .iter()
+                    .map(|g| ListItem::new(g.name.as_str()))
+                    .collect();
+
+                let list = List::new(items)
+                    .block(
+                        Block::default()
+                            .title("Servers (Guilds)")
+                            .borders(Borders::ALL),
                     )
-                })
-                .collect::<Vec<_>>()
-                .join("\n"),
+                    .highlight_style(Style::default().reversed())
+                    .highlight_symbol(">> ");
+
+                let mut state = ListState::default().with_selected(Some(app.selection_index));
+                f.render_stateful_widget(list, chunks[0], &mut state);
+            }
+            AppState::SelectingChannel(guild_id) => {
+                let title = format!("Channels for Guild: {guild_id}");
+                let items: Vec<ListItem> = app
+                    .channels
+                    .iter()
+                    .map(|c| ListItem::new(format!("# {}", c.name)))
+                    .collect();
+
+                let list = List::new(items)
+                    .block(Block::default().title(title).borders(Borders::ALL))
+                    .highlight_style(Style::default().reversed())
+                    .highlight_symbol(">> ");
+
+                let mut state = ListState::default().with_selected(Some(app.selection_index));
+                f.render_stateful_widget(list, chunks[0], &mut state);
+            }
+            AppState::Chatting(_) => {
+                let main_content = app
+                    .messages
+                    .iter()
+                    .rev()
+                    .map(|m| {
+                        format!(
+                            "[{}] {}: {}",
+                            m.timestamp.split('T').nth(1).unwrap_or(""),
+                            m.author.username,
+                            m.content.as_deref().unwrap_or("(*non-text*)")
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+
+                f.render_widget(
+                    Paragraph::new(main_content)
+                        .block(Block::default().title("Rivet Client").borders(Borders::ALL)),
+                    chunks[0],
+                );
+            }
         };
 
-        f.render_widget(
-            Paragraph::new(main_content)
-                .block(Block::default().title("Rivet Client").borders(Borders::ALL)),
-            chunks[0],
-        );
         f.render_widget(
             Paragraph::new(app.input.as_str()).block(
                 Block::default()
@@ -191,7 +230,7 @@ async fn main() -> Result<(), Error> {
                     .borders(Borders::ALL),
             ),
             chunks[1],
-        );
+        )
     }
 
     async fn handle_input_events(tx: mpsc::Sender<AppAction>) -> Result<(), io::Error> {
@@ -273,10 +312,16 @@ async fn main() -> Result<(), Error> {
                         });
                     }
                 }
-                AppAction::SelectNext => {}
+                AppAction::SelectNext => {
+                    match state.state {
+                        AppState::SelectingGuild => {
+                            if !statte.guild_id..
+                        }
+                    }
+                }
                 AppAction::SelectPrevious => {}
                 AppAction::ApiUpdateMessages(new_messages) => {
-                    state.messages = new_messages;
+                    state.messages = new_message(s;
                 }
             }
         }
