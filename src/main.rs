@@ -100,13 +100,16 @@ async fn main() -> Result<(), Error> {
     let mut interval = time::interval(Duration::from_secs(2));
 
     tokio::spawn(async move {
-        if let Ok(guilds) = get_current_user_guilds(&api_client, &api_token).await {
-            let mut state = api_state.lock().await;
-            state.guilds = guilds;
-            state.status_message =
-                "Select a server. Use arrows to navigate & Enter to select".to_string();
-        } else {
-            api_state.lock().await.status_message = "Failed to load servers.".to_string();
+        match get_current_user_guilds(&api_client, &api_token).await {
+            Ok(guilds) => {
+                let mut state = api_state.lock().await;
+                state.guilds = guilds;
+                state.status_message =
+                    "Select a server. Use arrows to navigate & Enter to select".to_string();
+            }
+            Err(e) => {
+                api_state.lock().await.status_message = format!("Failed to load servers. {e}");
+            }
         }
 
         loop {
@@ -197,9 +200,7 @@ async fn main() -> Result<(), Error> {
                 if let event::Event::Key(key) = event::read()? {
                     if key.kind == KeyEventKind::Press {
                         match key.code {
-                            KeyCode::Char('q') | KeyCode::Esc => {
-                                tx.send(AppAction::Quit).await.unwrap()
-                            }
+                            KeyCode::Esc => tx.send(AppAction::Quit).await.unwrap(),
                             KeyCode::Enter => tx.send(AppAction::InputSubmit).await.unwrap(),
                             KeyCode::Backspace => tx.send(AppAction::InputBackspace).await.unwrap(),
                             KeyCode::Up => tx.send(AppAction::SelectPrevious).await.unwrap(),
