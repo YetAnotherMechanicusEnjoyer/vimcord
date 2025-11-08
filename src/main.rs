@@ -7,7 +7,10 @@ use crossterm::{
 use ratatui::{Terminal, prelude::CrosstermBackend};
 use reqwest::Client;
 use tokio::{
-    sync::{Mutex, mpsc},
+    sync::{
+        Mutex, MutexGuard,
+        mpsc::{self, Sender},
+    },
     task::JoinHandle,
     time::{self, Duration},
 };
@@ -67,6 +70,150 @@ pub struct App {
     status_message: String,
     terminal_height: usize,
     terminal_width: usize,
+}
+
+async fn input_submit(
+    state: &mut MutexGuard<'_, App>,
+    client: &Client,
+    token: String,
+    tx_action: &Sender<AppAction>,
+) -> bool {
+    match &state.state {
+        AppState::SelectingGuild => {
+            if state.guilds.is_empty() {
+                return true;
+            }
+
+            let selected_guild = &state.guilds[state.selection_index];
+            let guild_id_clone = selected_guild.id.clone();
+            let selected_guild_name = selected_guild.name.clone();
+
+            let client_clone = client.clone();
+            let token_clone = token.clone();
+            let tx_clone = tx_action.clone();
+
+            state.status_message = format!("Loading channels for {selected_guild_name}...");
+
+            tokio::spawn(async move {
+                match get_guild_channels(&client_clone, &token_clone, &guild_id_clone).await {
+                    Ok(channels) => {
+                        tx_clone
+                            .send(AppAction::ApiUpdateChannel(channels))
+                            .await
+                            .ok();
+                        tx_clone
+                            .send(AppAction::TransitionToChannels(guild_id_clone))
+                            .await
+                            .ok();
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to load channels: {e}");
+                    }
+                }
+            });
+        }
+        AppState::SelectingChannel(_) => {
+            let text_channels: Vec<&Channel> = state
+                .channels
+                .iter()
+                .filter(|c| c.channel_type != 4)
+                .collect();
+
+            if text_channels.is_empty() {
+                return true;
+            }
+
+            let channel_info = {
+                let selected_channel = &text_channels[state.selection_index];
+                (selected_channel.id.clone(), selected_channel.name.clone())
+            };
+            let (channel_id_clone, selected_channel_name) = channel_info;
+
+            state.state = AppState::Chatting(channel_id_clone.clone());
+            state.status_message = format!("Chatting in channel #{selected_channel_name}");
+            state.selection_index = 0;
+        }
+        AppState::Chatting(_) => {
+            let channel_id_clone = if let AppState::Chatting(id) = &state.state {
+                Some(id.clone())
+            } else {
+                None
+            };
+
+            let content = state.input.drain(..).collect::<String>();
+
+            let message_data = if content.is_empty() || channel_id_clone.is_none() {
+                None
+            } else {
+                channel_id_clone.map(|id| (id, content))
+            };
+
+            if let Some((channel_id_clone, content)) = message_data {
+                let client_clone = client.clone();
+                let token_clone = token.clone();
+
+                tokio::spawn(async move {
+                    match create_message(
+                        &client_clone,
+                        &channel_id_clone,
+                        &token_clone,
+                        Some(content),
+                        false,
+                    )
+                    .await
+                    {
+                        Ok(_) => {}
+                        Err(e) => {
+                            eprintln!("API Error: {e}");
+                        }
+                    }
+                });
+            }
+        }
+    }
+    false
+}
+
+async fn move_selection(state: &mut MutexGuard<'_, App>, n: i32) {
+    match state.state {
+        AppState::SelectingGuild => {
+            if !state.guilds.is_empty() {
+                if n < 0 {
+                    state.selection_index = if state.selection_index == 0 {
+                        state.guilds.len() - n.unsigned_abs() as usize
+                    } else {
+                        state.selection_index - n.unsigned_abs() as usize
+                    };
+                } else {
+                    state.selection_index += n.unsigned_abs() as usize % state.guilds.len();
+                }
+            }
+        }
+        AppState::SelectingChannel(_) => {
+            if !state.channels.is_empty() {
+                if n < 0 {
+                    state.selection_index = if state.selection_index == 0 {
+                        state
+                            .channels
+                            .iter()
+                            .filter(|c| c.channel_type != 4)
+                            .count()
+                            - n.unsigned_abs() as usize
+                    } else {
+                        state.selection_index - n.unsigned_abs() as usize
+                    };
+                } else {
+                    state.selection_index = (state.selection_index + n.unsigned_abs() as usize)
+                        % state
+                            .channels
+                            .iter()
+                            .filter(|c| c.channel_type != 4)
+                            .count();
+                }
+            }
+        }
+        _ => {}
+    }
 }
 
 async fn run_app(token: String) -> Result<(), Error> {
@@ -207,148 +354,13 @@ async fn run_app(token: String) -> Result<(), Error> {
                 AppAction::InputBackspace => {
                     state.input.pop();
                 }
-                AppAction::InputSubmit => match &state.state {
-                    AppState::SelectingGuild => {
-                        if state.guilds.is_empty() {
-                            continue;
-                        }
-
-                        let selected_guild = &state.guilds[state.selection_index];
-                        let guild_id_clone = selected_guild.id.clone();
-                        let selected_guild_name = selected_guild.name.clone();
-
-                        let client_clone = client.clone();
-                        let token_clone = token.clone();
-                        let tx_clone = tx_action.clone();
-
-                        state.status_message =
-                            format!("Loading channels for {selected_guild_name}...");
-
-                        tokio::spawn(async move {
-                            match get_guild_channels(&client_clone, &token_clone, &guild_id_clone)
-                                .await
-                            {
-                                Ok(channels) => {
-                                    tx_clone
-                                        .send(AppAction::ApiUpdateChannel(channels))
-                                        .await
-                                        .ok();
-                                    tx_clone
-                                        .send(AppAction::TransitionToChannels(guild_id_clone))
-                                        .await
-                                        .ok();
-                                }
-                                Err(e) => {
-                                    eprintln!("Failed to load channels: {e}");
-                                }
-                            }
-                        });
+                AppAction::InputSubmit => {
+                    if input_submit(&mut state, &client, token.clone(), &tx_action).await {
+                        continue;
                     }
-                    AppState::SelectingChannel(_) => {
-                        let text_channels: Vec<&Channel> = state
-                            .channels
-                            .iter()
-                            .filter(|c| c.channel_type != 4)
-                            .collect();
-
-                        if text_channels.is_empty() {
-                            continue;
-                        }
-
-                        let channel_info = {
-                            let selected_channel = &text_channels[state.selection_index];
-                            (selected_channel.id.clone(), selected_channel.name.clone())
-                        };
-                        let (channel_id_clone, selected_channel_name) = channel_info;
-
-                        state.state = AppState::Chatting(channel_id_clone.clone());
-                        state.status_message =
-                            format!("Chatting in channel #{selected_channel_name}");
-                        state.selection_index = 0;
-                    }
-                    AppState::Chatting(_) => {
-                        let channel_id_clone = if let AppState::Chatting(id) = &state.state {
-                            Some(id.clone())
-                        } else {
-                            None
-                        };
-
-                        let content = state.input.drain(..).collect::<String>();
-
-                        let message_data = if content.is_empty() || channel_id_clone.is_none() {
-                            None
-                        } else {
-                            channel_id_clone.map(|id| (id, content))
-                        };
-
-                        if let Some((channel_id_clone, content)) = message_data {
-                            let client_clone = client.clone();
-                            let token_clone = token.clone();
-
-                            tokio::spawn(async move {
-                                match create_message(
-                                    &client_clone,
-                                    &channel_id_clone,
-                                    &token_clone,
-                                    Some(content),
-                                    false,
-                                )
-                                .await
-                                {
-                                    Ok(_) => {}
-                                    Err(e) => {
-                                        eprintln!("API Error: {e}");
-                                    }
-                                }
-                            });
-                        }
-                    }
-                },
-                AppAction::SelectNext => match state.state {
-                    AppState::SelectingGuild => {
-                        if !state.guilds.is_empty() {
-                            state.selection_index =
-                                (state.selection_index + 1) % state.guilds.len();
-                        }
-                    }
-                    AppState::SelectingChannel(_) => {
-                        if !state.channels.is_empty() {
-                            state.selection_index = (state.selection_index + 1)
-                                % state
-                                    .channels
-                                    .iter()
-                                    .filter(|c| c.channel_type != 4)
-                                    .count();
-                        }
-                    }
-                    _ => {}
-                },
-                AppAction::SelectPrevious => match state.state {
-                    AppState::SelectingGuild => {
-                        if !state.guilds.is_empty() {
-                            state.selection_index = if state.selection_index == 0 {
-                                state.guilds.len() - 1
-                            } else {
-                                state.selection_index - 1
-                            };
-                        }
-                    }
-                    AppState::SelectingChannel(_) => {
-                        if !state.channels.is_empty() {
-                            state.selection_index = if state.selection_index == 0 {
-                                state
-                                    .channels
-                                    .iter()
-                                    .filter(|c| c.channel_type != 4)
-                                    .count()
-                                    - 1
-                            } else {
-                                state.selection_index - 1
-                            };
-                        }
-                    }
-                    _ => {}
-                },
+                }
+                AppAction::SelectNext => move_selection(&mut state, 1).await,
+                AppAction::SelectPrevious => move_selection(&mut state, -1).await,
                 AppAction::ApiUpdateMessages(new_messages) => {
                     state.messages = new_messages;
                 }
