@@ -19,9 +19,9 @@ pub async fn handle_input_events(
             }
 
             _ = time::sleep(Duration::from_millis(50)) => {
-                if event::poll(Duration::from_millis(0))? {
-                    if let event::Event::Key(key) = event::read()? {
-                        if key.kind == KeyEventKind::Press {
+                if event::poll(Duration::from_millis(0))?
+                    && let event::Event::Key(key) = event::read()?
+                        && key.kind == KeyEventKind::Press {
                             match key.code {
                                 KeyCode::Esc => {
                                     tx.send(AppAction::InputEscape).await.ok();
@@ -44,8 +44,6 @@ pub async fn handle_input_events(
                                 _ => {}
                             }
                         }
-                    }
-                }
             }
         }
     }
