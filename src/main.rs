@@ -17,25 +17,30 @@ use tokio::{
 
 use crate::{
     api::{
-        channel::get_channel::get_channel,
         guild::get_guild_channels::get_guild_channels,
         message::{create_message::create_message, get_channel_messages::get_channel_messages},
         user::get_current_user_guilds::get_current_user_guilds,
     },
-    model::{
-        channel::{Channel, Message},
-        guild::Guild,
-    },
+    model::{channel::Channel, guild::Guild, message::Message},
     signals::{restore_terminal, setup_ctrlc_handler},
-    ui::{draw::draw_ui, events::handle_input_events},
+    ui::{
+        draw::draw_ui,
+        events::{handle_input_events, handle_keys_events},
+    },
 };
 
-pub mod api;
-pub mod model;
+mod api;
+mod model;
 mod signals;
-pub mod ui;
+mod ui;
 
 pub type Error = Box<dyn std::error::Error + Send + Sync + 'static>;
+
+#[derive(Debug)]
+pub enum KeywordAction {
+    Continue,
+    Break,
+}
 
 #[derive(Debug)]
 enum AppState {
@@ -330,83 +335,13 @@ async fn run_app(token: String) -> Result<(), Error> {
                 .unwrap();
         }
         if let Some(action) = rx_action.recv().await {
-            let mut state = app_state.lock().await;
+            let state = app_state.lock().await;
 
-            match action {
-                AppAction::InputEscape => match &state.state {
-                    AppState::SelectingGuild => {
-                        break;
-                    }
-                    AppState::SelectingChannel(_) => {
-                        state.state = AppState::SelectingGuild;
-                        state.status_message = "Select a server. Use arrows to navigate, Enter to select & Esc to quit".to_string();
-                        state.selection_index = 0;
-                    }
-                    AppState::Chatting(channel_id) => {
-                        let channel = get_channel(&client, &token, channel_id).await.unwrap();
-                        match channel.guild_id {
-                            Some(guild_id) => {
-                                state.state = AppState::SelectingChannel(guild_id);
-                                state.status_message = "Select a server. Use arrows to navigate, Enter to select & Esc to quit".to_string();
-                                state.selection_index = 0;
-                            }
-                            None => {
-                                state.state = AppState::SelectingGuild;
-                                state.status_message = "Select a server. Use arrows to navigate, Enter to select & Esc to quit".to_string();
-                                state.selection_index = 0;
-                            }
-                        }
-                    }
-                },
-                AppAction::InputChar(c) => {
-                    if let AppState::Chatting(_) = state.state {
-                        state.input.push(c);
-                    }
-                }
-                AppAction::InputBackspace => {
-                    state.input.pop();
-                }
-                AppAction::InputSubmit => {
-                    if input_submit(&mut state, &client, token.clone(), &tx_action).await {
-                        continue;
-                    }
-                }
-                AppAction::SelectNext => move_selection(&mut state, 1).await,
-                AppAction::SelectPrevious => move_selection(&mut state, -1).await,
-                AppAction::ApiUpdateMessages(new_messages) => {
-                    state.messages = new_messages;
-                }
-                AppAction::ApiUpdateChannel(new_channels) => {
-                    state.channels = new_channels;
-                    let text_channels_count = state.channels.len();
-                    if text_channels_count > 0 {
-                        state.status_message =
-                            "Channels loaded. Select one to chat. (Esc to return to Servers)"
-                                .to_string();
-                    } else {
-                        state.status_message =
-                            "No text channels found. (Esc to return to Servers)".to_string();
-                    }
-                    state.selection_index = 0;
-                }
-                AppAction::TransitionToChannels(guild_id) => {
-                    state.state = AppState::SelectingChannel(guild_id);
-                    state.status_message =
-                        "Select a channel. Use arrows to navigate, Enter to select & Esc to quit"
-                            .to_string();
-                    state.selection_index = 0;
-                }
-                AppAction::TransitionToChat(channel_id) => {
-                    state.state = AppState::Chatting(channel_id);
-                    state.status_message = "Chatting...".to_string();
-                }
-                AppAction::TransitionToGuilds => {
-                    state.state = AppState::SelectingGuild;
-                    state.status_message =
-                        "Select a server. Use arrows to navigate, Enter to select & Esc to quit"
-                            .to_string();
-                    state.selection_index = 0;
-                }
+            match handle_keys_events(state, action, &client, token.clone(), tx_action.clone()).await
+            {
+                Some(KeywordAction::Continue) => continue,
+                Some(KeywordAction::Break) => break,
+                None => {}
             }
         }
     }
@@ -426,7 +361,7 @@ async fn main() -> Result<(), Error> {
     const ENV_TOKEN: &str = "DISCORD_TOKEN";
 
     let token: String = env::var(ENV_TOKEN).unwrap_or_else(|_| {
-        eprintln!("Error: DISCORD_TOKEN variable is missing.");
+        eprintln!("Env Error: DISCORD_TOKEN variable is missing.");
         process::exit(1);
     });
 
