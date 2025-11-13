@@ -4,7 +4,7 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-use crate::{App, AppState, model::channel::Message};
+use crate::{App, AppState, model::message::Message};
 
 pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
     use ratatui::layout::{Constraint, Direction, Layout};
