@@ -1,13 +1,13 @@
 use reqwest::Client;
 
-use crate::{Error, model::channel::Channel};
+use crate::{Error, api::DISCORD_API_BASE_URL, model::channel::Channel};
 
 pub async fn get_guild_channels(
     client: &Client,
     token: &str,
     guild_id: &str,
 ) -> Result<Vec<Channel>, Error> {
-    let url = format!("https://discord.com/api/v10/guilds/{guild_id}/channels");
+    let url = format!("{DISCORD_API_BASE_URL}/guilds/{guild_id}/channels");
     let response = client
         .get(&url)
         .header("Authorization", token)
