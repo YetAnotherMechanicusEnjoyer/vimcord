@@ -48,7 +48,7 @@ pub enum KeywordAction {
     Break,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum AppState {
     SelectingGuild,
     SelectingChannel(String),
@@ -67,14 +67,14 @@ pub enum AppAction {
     ApiUpdateMessages(Vec<Message>),
     ApiUpdateChannel(Vec<Channel>),
     ApiUpdateEmojis(Vec<Emoji>),
-    #[allow(dead_code)]
+    ApiUpdateGuilds(Vec<Guild>),
     TransitionToChat(String),
     TransitionToChannels(String),
-    #[allow(dead_code)]
     TransitionToGuilds,
     SelectEmoji,
 }
 
+#[derive(Debug, Clone)]
 pub struct App {
     state: AppState,
     guilds: Vec<Guild>,
@@ -137,11 +137,9 @@ async fn run_app(token: String) -> Result<(), Error> {
     let api_handle: JoinHandle<()> = tokio::spawn(async move {
         match get_current_user_guilds(&api_client, &api_token).await {
             Ok(guilds) => {
-                let mut state = api_state.lock().await;
-                state.guilds = guilds;
-                state.status_message =
-                    "Select a server. Use arrows to navigate, Enter to select & Esc to quit."
-                        .to_string();
+                if let Err(e) = tx_api.send(AppAction::ApiUpdateGuilds(guilds)).await {
+                    eprintln!("Failed to send guild update action: {e}");
+                }
             }
             Err(e) => {
                 api_state.lock().await.status_message = format!("Failed to load servers. {e}");
@@ -205,31 +203,7 @@ async fn run_app(token: String) -> Result<(), Error> {
         if let Some(action) = rx_action.recv().await {
             let state = app_state.lock().await;
 
-            let filtered_unicode: Vec<(&str, &str)> = UNICODE_EMOJI_DICTIONARY
-                .iter()
-                .filter(|(name, _)| name.starts_with(&state.emoji_filter))
-                .copied()
-                .collect();
-
-            let filtered_custom: Vec<&Emoji> = state
-                .custom_emojis
-                .iter()
-                .filter(|e| e.name.starts_with(&state.emoji_filter))
-                .collect();
-
-            let total_filtered_emojis = filtered_unicode.len() + filtered_custom.len();
-
-            match handle_keys_events(
-                app_state.lock().await,
-                action,
-                &client,
-                token.clone(),
-                tx_action.clone(),
-                filtered_unicode,
-                filtered_custom,
-                total_filtered_emojis,
-            )
-            .await
+            match handle_keys_events(state, action, &client, token.clone(), tx_action.clone()).await
             {
                 Some(KeywordAction::Continue) => continue,
                 Some(KeywordAction::Break) => break,
@@ -240,9 +214,9 @@ async fn run_app(token: String) -> Result<(), Error> {
 
     drop(rx_action);
 
-    api_handle.abort();
-    input_handle.abort();
-    tx_shutdown.send(()).ok();
+    let _ = tx_shutdown.send(());
+
+    let _ = tokio::join!(input_handle, api_handle);
 
     Ok(())
 }
