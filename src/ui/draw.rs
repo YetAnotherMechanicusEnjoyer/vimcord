@@ -1,7 +1,7 @@
 use ratatui::{
     style::{Color, Style, Stylize},
     text::Span,
-    widgets::{List, ListItem, ListState},
+    widgets::{Clear, List, ListItem, ListState},
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -43,6 +43,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                 .highlight_symbol(">> ");
 
             let mut state = ListState::default().with_selected(Some(app.selection_index));
+            f.render_widget(Clear, chunks[0]);
             f.render_stateful_widget(list, chunks[0], &mut state);
         }
         AppState::SelectingChannel(guild_id) => {
@@ -67,6 +68,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                 .highlight_symbol(">> ");
 
             let mut state = ListState::default().with_selected(Some(app.selection_index));
+            f.render_widget(Clear, chunks[0]);
             f.render_stateful_widget(list, chunks[0], &mut state);
         }
         AppState::Chatting(_) | AppState::EmojiSelection(_) => {
@@ -157,6 +159,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                 .wrap(Wrap { trim: false })
                 .scroll((scroll_offset as u16, 0));
 
+            f.render_widget(Clear, chunks[0]);
             f.render_widget(paragraph, chunks[0]);
         }
     };
@@ -166,11 +169,13 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
         let emoji_popup_height = 8;
 
         let popup_rect = ratatui::layout::Rect {
-            x: input_area.x,
+            x: input_area.x + 1,
             y: input_area.y.saturating_sub(emoji_popup_height + 1),
-            width: input_area.width.saturating_sub(5),
+            width: input_area.width.saturating_sub(2),
             height: emoji_popup_height,
         };
+
+        f.render_widget(Clear, popup_rect);
 
         let mut filtered_items: Vec<ListItem> = Vec::new();
 
@@ -206,18 +211,18 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
         } else {
             app.selection_index = 0;
         }
-
-        f.render_widget(
-            Paragraph::new(app.input.as_str()).block(
-                Block::default()
-                    .title(format!("Input: {}", app.status_message))
-                    .borders(Borders::ALL),
-            ),
-            chunks[1],
-        );
-
-        let cursor_x = chunks[1].x + 1 + app.input.width() as u16;
-        let cursor_y = chunks[1].y + 1;
-        f.set_cursor_position((cursor_x, cursor_y));
     }
+
+    f.render_widget(
+        Paragraph::new(app.input.as_str()).block(
+            Block::default()
+                .title(format!("Input: {}", app.status_message))
+                .borders(Borders::ALL),
+        ),
+        chunks[1],
+    );
+
+    let cursor_x = chunks[1].x + 1 + app.input.width() as u16;
+    let cursor_y = chunks[1].y + 1;
+    f.set_cursor_position((cursor_x, cursor_y));
 }
