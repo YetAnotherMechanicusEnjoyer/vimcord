@@ -8,7 +8,7 @@ use tokio::{
 };
 
 use crate::{
-    App, AppAction, AppState, KeywordAction, UNICODE_EMOJI_DICTIONARY,
+    App, AppAction, AppState, KeywordAction,
     api::{create_message, get_channel, get_guild_channels, get_guild_emojis},
     model::{Channel, Emoji, Guild},
 };
@@ -65,7 +65,7 @@ async fn input_submit(
     client: &Client,
     token: String,
     tx_action: &Sender<AppAction>,
-    filtered_unicode: Vec<(&str, &str)>,
+    filtered_unicode: Vec<&(String, String)>,
     filtered_custom: Vec<&Emoji>,
     total_filtered_emojis: usize,
 ) -> bool {
@@ -287,10 +287,11 @@ pub async fn handle_keys_events(
     token: String,
     tx_action: Sender<AppAction>,
 ) -> Option<KeywordAction> {
-    let filtered_unicode: Vec<(&str, &str)> = UNICODE_EMOJI_DICTIONARY
+    let state_clone = state.clone();
+    let filtered_unicode: Vec<&(String, String)> = state_clone
+        .emoji_map
         .iter()
         .filter(|(name, _)| name.starts_with(&state.emoji_filter))
-        .copied()
         .collect();
 
     let state_clone = state.clone();
