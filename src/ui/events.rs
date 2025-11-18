@@ -335,7 +335,7 @@ pub async fn handle_keys_events(
             }
         },
         AppAction::InputChar(c) => match &mut state.state {
-            AppState::Chatting(_) => {
+            AppState::Chatting(_) | AppState::SelectingGuild => {
                 state.input.push(c);
             }
             AppState::EmojiSelection(_) => {
