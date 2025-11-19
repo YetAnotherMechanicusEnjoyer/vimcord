@@ -1,7 +1,6 @@
 use std::io;
 
 use crossterm::event::{self, KeyCode, KeyEventKind};
-use reqwest::Client;
 use tokio::{
     sync::{MutexGuard, mpsc::Sender},
     time::{self, Duration},
@@ -9,8 +8,7 @@ use tokio::{
 
 use crate::{
     App, AppAction, AppState, KeywordAction,
-    api::{create_message, get_channel, get_guild_channels, get_guild_emojis},
-    model::{Channel, Emoji, Guild},
+    api::{Channel, Emoji, Guild},
 };
 
 pub async fn handle_input_events(
@@ -62,8 +60,6 @@ pub async fn handle_input_events(
 
 async fn input_submit(
     state: &mut MutexGuard<'_, App>,
-    client: &Client,
-    token: String,
     tx_action: &Sender<AppAction>,
     filtered_unicode: Vec<&(String, String)>,
     filtered_custom: Vec<&Emoji>,
@@ -85,15 +81,19 @@ async fn input_submit(
             let guild_id_clone = selected_guild.id.clone();
             let selected_guild_name = selected_guild.name.clone();
 
-            let client_clone = client.clone();
-            let token_clone = token.clone();
             let tx_clone = tx_action.clone();
 
             state.input = String::new();
             state.status_message = format!("Loading channels for {selected_guild_name}...");
 
+            let state_clone = state.clone();
+
             tokio::spawn(async move {
-                match get_guild_channels(&client_clone, &token_clone, &guild_id_clone).await {
+                match state_clone
+                    .api_client
+                    .get_guild_channels(&guild_id_clone)
+                    .await
+                {
                     Ok(channels) => {
                         tx_clone
                             .send(AppAction::ApiUpdateChannel(channels))
@@ -104,7 +104,11 @@ async fn input_submit(
                         eprintln!("Failed to load channels: {e}");
                     }
                 }
-                match get_guild_emojis(&client_clone, &guild_id_clone, &token_clone).await {
+                match state_clone
+                    .api_client
+                    .get_guild_emojis(&guild_id_clone)
+                    .await
+                {
                     Ok(emojis) => {
                         tx_clone.send(AppAction::ApiUpdateEmojis(emojis)).await.ok();
                     }
@@ -199,18 +203,13 @@ async fn input_submit(
             };
 
             if let Some((channel_id_clone, content)) = message_data {
-                let client_clone = client.clone();
-                let token_clone = token.clone();
+                let state_clone = state.clone();
 
                 tokio::spawn(async move {
-                    match create_message(
-                        &client_clone,
-                        &channel_id_clone,
-                        &token_clone,
-                        Some(content),
-                        false,
-                    )
-                    .await
+                    match state_clone
+                        .api_client
+                        .create_message(&channel_id_clone, Some(content), false)
+                        .await
                     {
                         Ok(_) => {}
                         Err(e) => {
@@ -283,8 +282,6 @@ async fn move_selection(state: &mut MutexGuard<'_, App>, n: i32, total_filtered_
 pub async fn handle_keys_events(
     mut state: MutexGuard<'_, App>,
     action: AppAction,
-    client: &Client,
-    token: String,
     tx_action: Sender<AppAction>,
 ) -> Option<KeywordAction> {
     let state_clone = state.clone();
@@ -316,7 +313,9 @@ pub async fn handle_keys_events(
                 state.selection_index = 0;
             }
             AppState::Chatting(channel_id) => {
-                let channel = get_channel(client, &token, &channel_id.clone())
+                let channel = state
+                    .api_client
+                    .get_channel(&channel_id.clone())
                     .await
                     .unwrap();
 
@@ -402,8 +401,6 @@ pub async fn handle_keys_events(
         AppAction::InputSubmit => {
             if input_submit(
                 &mut state,
-                client,
-                token.clone(),
                 &tx_action,
                 filtered_unicode,
                 filtered_custom,
