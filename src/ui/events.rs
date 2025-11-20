@@ -8,7 +8,7 @@ use tokio::{
 
 use crate::{
     App, AppAction, AppState, KeywordAction,
-    api::{Channel, Emoji, Guild},
+    api::{Channel, DM, Emoji, Guild},
 };
 
 pub async fn handle_input_events(
@@ -66,6 +66,38 @@ async fn input_submit(
     total_filtered_emojis: usize,
 ) -> bool {
     match &state.clone().state {
+        AppState::Home => match state.selection_index {
+            0 => {
+                tx_action.send(AppAction::TransitionToGuilds).await.ok();
+            }
+            1 => {
+                tx_action.send(AppAction::TransitionToDM).await.ok();
+            }
+            _ => {}
+        },
+        AppState::SelectingDM => {
+            let dms: Vec<&DM> = state
+                .dms
+                .iter()
+                .filter(|d| d.get_name().to_lowercase().contains(&state.input))
+                .collect();
+
+            if dms.is_empty() {
+                return true;
+            }
+
+            let selected_dm = &dms[state.selection_index];
+            let dm_id_clone = selected_dm.id.clone();
+            let selected_dm_name = selected_dm.recipients[0].username.clone();
+
+            state.input = String::new();
+            state.status_message = format!("Loading messages for {selected_dm_name}...");
+
+            tx_action
+                .send(AppAction::TransitionToChat(dm_id_clone))
+                .await
+                .ok();
+        }
         AppState::SelectingGuild => {
             let guilds: Vec<&Guild> = state
                 .guilds
@@ -83,7 +115,6 @@ async fn input_submit(
 
             let tx_clone = tx_action.clone();
 
-            state.input = String::new();
             state.status_message = format!("Loading channels for {selected_guild_name}...");
 
             let api_client_clone = state.api_client.clone();
@@ -133,9 +164,12 @@ async fn input_submit(
             let (channel_id_clone, selected_channel_name) = channel_info;
 
             state.input = String::new();
-            state.state = AppState::Chatting(channel_id_clone.clone());
-            state.status_message = format!("Chatting in channel #{selected_channel_name}");
-            state.selection_index = 0;
+            state.status_message = format!("Loading messages for {selected_channel_name}...");
+
+            tx_action
+                .send(AppAction::TransitionToChat(channel_id_clone))
+                .await
+                .ok();
         }
         AppState::EmojiSelection(channel_id) => {
             if state.selection_index < filtered_unicode.len() {
@@ -216,6 +250,31 @@ async fn input_submit(
 
 async fn move_selection(state: &mut MutexGuard<'_, App>, n: i32, total_filtered_emojis: usize) {
     match state.state {
+        AppState::Home => {
+            if n < 0 {
+                state.selection_index = if state.selection_index == 0 {
+                    3 - n.unsigned_abs() as usize
+                } else {
+                    state.selection_index - n.unsigned_abs() as usize
+                };
+            } else {
+                state.selection_index = (state.selection_index + n.unsigned_abs() as usize) % 3;
+            }
+        }
+        AppState::SelectingDM => {
+            if !state.dms.is_empty() {
+                if n < 0 {
+                    state.selection_index = if state.selection_index == 0 {
+                        state.dms.len() - n.unsigned_abs() as usize
+                    } else {
+                        state.selection_index - n.unsigned_abs() as usize
+                    };
+                } else {
+                    state.selection_index =
+                        (state.selection_index + n.unsigned_abs() as usize) % state.dms.len();
+                }
+            }
+        }
         AppState::SelectingGuild => {
             if !state.guilds.is_empty() {
                 if n < 0 {
@@ -294,48 +353,43 @@ pub async fn handle_keys_events(
     match action {
         AppAction::SigInt => return Some(KeywordAction::Break),
         AppAction::InputEscape => match &state.state {
-            AppState::SelectingGuild => return Some(KeywordAction::Break),
+            AppState::Home => return Some(KeywordAction::Break),
+            AppState::SelectingDM => {
+                tx_action.send(AppAction::TransitionToHome).await.ok();
+            }
+            AppState::SelectingGuild => {
+                tx_action.send(AppAction::TransitionToHome).await.ok();
+            }
             AppState::SelectingChannel(_) => {
-                state.input = String::new();
-                state.state = AppState::SelectingGuild;
-                state.status_message =
-                    "Select a server. Use arrows to navigate, Enter to select & Esc to quit"
-                        .to_string();
-                state.selection_index = 0;
+                tx_action.send(AppAction::TransitionToGuilds).await.ok();
             }
             AppState::Chatting(channel_id) => {
-                let channel = state
-                    .api_client
-                    .get_channel(&channel_id.clone())
-                    .await
-                    .unwrap();
-
-                state.input = String::new();
-
-                match channel.guild_id {
-                    Some(guild_id) => {
-                        state.state = AppState::SelectingChannel(guild_id);
-                        state.status_message =
-                            "Select a server. Use arrows to navigate, Enter to select & Esc to quit"
-                                .to_string();
-                        state.selection_index = 0;
+                let channel = match state.api_client.get_channel(&channel_id.clone()).await {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tx_action.send(AppAction::TransitionToHome).await.ok();
+                        state.status_message = format!("{e}");
+                        return None;
                     }
-                    None => {
-                        state.state = AppState::SelectingGuild;
-                        state.status_message =
-                            "Select a server. Use arrows to navigate, Enter to select & Esc to quit"
-                                .to_string();
-                        state.selection_index = 0;
-                    }
+                };
+
+                if channel.channel_type == 1 || channel.channel_type == 3 {
+                    tx_action.send(AppAction::TransitionToDM).await.ok();
+                } else {
+                    match channel.guild_id {
+                        Some(guild_id) => tx_action
+                            .send(AppAction::TransitionToChannels(guild_id.clone()))
+                            .await
+                            .ok(),
+                        None => tx_action.send(AppAction::TransitionToGuilds).await.ok(),
+                    };
                 }
             }
             AppState::EmojiSelection(channel_id) => {
-                state.state = AppState::Chatting(channel_id.clone());
-                if state.input.ends_with(':') {
-                    state.input.pop();
-                }
-                state.emoji_filter.clear();
-                state.selection_index = 0;
+                tx_action
+                    .send(AppAction::TransitionToChat(channel_id.clone()))
+                    .await
+                    .ok();
             }
         },
         AppAction::InputChar(c) => match &mut state.clone().state {
@@ -428,22 +482,58 @@ pub async fn handle_keys_events(
         AppAction::ApiUpdateEmojis(new_emojis) => {
             state.custom_emojis = new_emojis;
         }
+        AppAction::ApiUpdateDMs(new_dms) => {
+            state.dms = new_dms;
+            let dms_count = state.dms.len();
+            if dms_count > 0 {
+                state.status_message =
+                    "DMs loaded. Select one to chat. (Esc to return to Home)".to_string();
+            } else {
+                state.status_message = "No DMs found. (Esc to return to Home)".to_string();
+            }
+            state.selection_index = 0;
+        }
         AppAction::TransitionToChannels(guild_id) => {
+            state.input = String::new();
             state.state = AppState::SelectingChannel(guild_id);
             state.status_message =
-                "Select a channel. Use arrows to navigate, Enter to select & Esc to quit"
+                "Select a server. Use arrows to navigate, Enter to select & Esc to quit"
                     .to_string();
             state.selection_index = 0;
         }
         AppAction::TransitionToChat(channel_id) => {
-            state.state = AppState::Chatting(channel_id);
-            state.status_message = "Chatting...".to_string();
+            state.state = AppState::Chatting(channel_id.clone());
+            state.status_message =
+                "Chatting in channel. Press Enter to send message, Esc to retur to channels."
+                    .to_string();
+
+            if let AppState::EmojiSelection(_) = &state.state {
+                if state.input.ends_with(':') {
+                    state.input.pop();
+                }
+                state.emoji_filter.clear();
+                state.selection_index = 0;
+            }
         }
         AppAction::TransitionToGuilds => {
+            state.input = String::new();
             state.state = AppState::SelectingGuild;
             state.status_message =
                 "Select a server. Use arrows to navigate, Enter to select & Esc to quit"
                     .to_string();
+            state.selection_index = 0;
+        }
+        AppAction::TransitionToDM => {
+            state.input = String::new();
+            state.state = AppState::SelectingDM;
+            state.status_message =
+                "Select a DM. Use arrows to navigate, Enter to select & Esc to quit".to_string();
+            state.selection_index = 0;
+        }
+        AppAction::TransitionToHome => {
+            state.input = String::new();
+            state.state = AppState::Home;
+            state.status_message = "Browse either DMs or Servers. Use arrows to navigate, Enter to select & Esc to quit".to_string();
             state.selection_index = 0;
         }
     }
