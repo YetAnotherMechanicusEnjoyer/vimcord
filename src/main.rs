@@ -62,6 +62,8 @@ pub enum AppAction {
     TransitionToChat(String),
     TransitionToChannels(String),
     TransitionToGuilds,
+    TransitionToDM,
+    TransitionToHome,
     SelectEmoji,
 }
 
@@ -73,6 +75,7 @@ pub struct App {
     channels: Vec<Channel>,
     messages: Vec<Message>,
     custom_emojis: Vec<Emoji>,
+    dms: Vec<DM>,
     input: String,
     selection_index: usize,
     status_message: String,
@@ -114,9 +117,12 @@ async fn run_app(token: String) -> Result<(), Error> {
         channels: Vec::new(),
         messages: Vec::new(),
         custom_emojis: Vec::new(),
+        dms: Vec::new(),
         input: String::new(),
         selection_index: 0,
-        status_message: "Loading servers...".to_string(),
+        status_message:
+            "Browse either DMs or Servers. Use arrows to navigate, Enter to select & Esc to quit"
+                .to_string(),
         terminal_height: 20,
         terminal_width: 80,
         emoji_map: App::load_emoji_map("emojis.json"),
@@ -144,15 +150,33 @@ async fn run_app(token: String) -> Result<(), Error> {
     let mut interval = time::interval(Duration::from_secs(2));
 
     let api_handle: JoinHandle<()> = tokio::spawn(async move {
-        let mut state = api_state.lock().await;
-        match state.api_client.get_current_user_guilds().await {
+        let api_client_clone;
+        {
+            let state = api_state.lock().await;
+            api_client_clone = state.api_client.clone();
+        }
+
+        match api_client_clone.get_current_user_guilds().await {
             Ok(guilds) => {
                 if let Err(e) = tx_api.send(AppAction::ApiUpdateGuilds(guilds)).await {
                     eprintln!("Failed to send guild update action: {e}");
                 }
             }
             Err(e) => {
+                let mut state = api_state.lock().await;
                 state.status_message = format!("Failed to load servers. {e}");
+            }
+        }
+
+        match api_client_clone.get_dms().await {
+            Ok(dms) => {
+                if let Err(e) = tx_api.send(AppAction::ApiUpdateDMs(dms)).await {
+                    eprintln!("Failed to send DM update action: {e}");
+                }
+            }
+            Err(e) => {
+                let mut state = api_state.lock().await;
+                state.status_message = format!("Failed to load DMs. {e}");
             }
         }
 
@@ -174,7 +198,7 @@ async fn run_app(token: String) -> Result<(), Error> {
                     if let Some(channel_id) = current_channel_id {
                         const MESSAGE_LIMIT: usize = 100;
 
-                        match state.api_client.get_channel_messages(
+                        match api_client_clone.get_channel_messages(
                             &channel_id,
                             None,
                             None,
