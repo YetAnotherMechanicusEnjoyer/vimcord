@@ -8,6 +8,7 @@ pub mod user;
 use reqwest::{Client, Response};
 
 pub use channel::Channel;
+pub use dm::DM;
 pub use emoji::Emoji;
 pub use guild::Guild;
 pub use message::Message;
@@ -33,6 +34,10 @@ impl ApiClient {
 
     pub async fn get_channel(&self, channel_id: &str) -> Result<Channel, Error> {
         Channel::from_id(self, channel_id).await
+    }
+
+    pub async fn get_dms(&self) -> Result<Vec<DM>, Error> {
+        DM::from_user(self).await
     }
 
     pub async fn get_guild_emojis(&self, guild_id: &str) -> Result<Vec<Emoji>, Error> {
