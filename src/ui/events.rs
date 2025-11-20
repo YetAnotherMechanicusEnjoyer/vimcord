@@ -64,7 +64,7 @@ async fn input_submit(
     filtered_unicode: Vec<&(String, String)>,
     filtered_custom: Vec<&Emoji>,
     total_filtered_emojis: usize,
-) -> bool {
+) -> Option<KeywordAction> {
     match &state.clone().state {
         AppState::Home => match state.selection_index {
             0 => {
@@ -72,6 +72,9 @@ async fn input_submit(
             }
             1 => {
                 tx_action.send(AppAction::TransitionToDM).await.ok();
+            }
+            2 => {
+                return Some(KeywordAction::Break);
             }
             _ => {}
         },
@@ -83,7 +86,7 @@ async fn input_submit(
                 .collect();
 
             if dms.is_empty() {
-                return true;
+                return Some(KeywordAction::Continue);
             }
 
             let selected_dm = &dms[state.selection_index];
@@ -106,7 +109,7 @@ async fn input_submit(
                 .collect();
 
             if guilds.is_empty() {
-                return true;
+                return Some(KeywordAction::Continue);
             }
 
             let selected_guild = &guilds[state.selection_index];
@@ -154,7 +157,7 @@ async fn input_submit(
                 .collect();
 
             if text_channels.is_empty() {
-                return true;
+                return Some(KeywordAction::Continue);
             }
 
             let channel_info = {
@@ -245,7 +248,7 @@ async fn input_submit(
             }
         }
     }
-    false
+    None
 }
 
 async fn move_selection(state: &mut MutexGuard<'_, App>, n: i32, total_filtered_emojis: usize) {
@@ -444,17 +447,14 @@ pub async fn handle_keys_events(
             }
         }
         AppAction::InputSubmit => {
-            if input_submit(
+            return input_submit(
                 &mut state,
                 &tx_action,
                 filtered_unicode,
                 filtered_custom,
                 total_filtered_emojis,
             )
-            .await
-            {
-                return Some(KeywordAction::Continue);
-            }
+            .await;
         }
         AppAction::SelectNext => move_selection(&mut state, 1, total_filtered_emojis).await,
         AppAction::SelectPrevious => move_selection(&mut state, -1, total_filtered_emojis).await,
