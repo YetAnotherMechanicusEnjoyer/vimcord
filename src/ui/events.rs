@@ -149,15 +149,36 @@ async fn input_submit(
                         eprintln!("Failed to load custom emojis: {e}");
                     }
                 }
+                match api_client_clone
+                    .get_permission_context(&guild_id_clone)
+                    .await
+                {
+                    Ok(context) => {
+                        tx_clone
+                            .send(AppAction::ApiUpdateContext(Some(context)))
+                            .await
+                            .ok();
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to load permission context: {e}");
+                    }
+                }
 
                 tx_clone.send(AppAction::EndLoading).await.ok();
             });
         }
         AppState::SelectingChannel(_) => {
+            let permission_context = &state.context;
             let text_channels: Vec<&Channel> = state
                 .channels
                 .iter()
-                .filter(|c| c.channel_type != 4 && c.name.to_lowercase().contains(&state.input))
+                .filter(|c| {
+                    let mut readable = false;
+                    if let Some(context) = &permission_context {
+                        readable = c.is_readable(context)
+                    }
+                    readable && c.name.to_lowercase().contains(&state.input.to_lowercase())
+                })
                 .collect();
 
             if text_channels.is_empty() {
@@ -318,24 +339,29 @@ async fn move_selection(state: &mut MutexGuard<'_, App>, n: i32, total_filtered_
         }
         AppState::SelectingChannel(_) => {
             if !state.channels.is_empty() {
+                let permission_context = &state.context;
+
+                let len = state
+                    .channels
+                    .iter()
+                    .filter(|c| {
+                        let mut readable = false;
+                        if let Some(context) = &permission_context {
+                            readable = c.is_readable(context);
+                        }
+                        readable && c.name.to_lowercase().contains(&state.input.to_lowercase())
+                    })
+                    .count();
+
                 if n < 0 {
                     state.selection_index = if state.selection_index == 0 {
-                        state
-                            .channels
-                            .iter()
-                            .filter(|c| c.channel_type != 4)
-                            .count()
-                            - n.unsigned_abs() as usize
+                        len - n.unsigned_abs() as usize
                     } else {
                         state.selection_index - n.unsigned_abs() as usize
                     };
                 } else {
-                    state.selection_index = (state.selection_index + n.unsigned_abs() as usize)
-                        % state
-                            .channels
-                            .iter()
-                            .filter(|c| c.channel_type != 4)
-                            .count();
+                    state.selection_index =
+                        (state.selection_index + n.unsigned_abs() as usize) % len;
                 }
             }
         }
@@ -516,6 +542,9 @@ pub async fn handle_keys_events(
                 state.status_message = "No DMs found. (Esc to return to Home)".to_string();
             }
             state.selection_index = 0;
+        }
+        AppAction::ApiUpdateContext(new_context) => {
+            state.context = new_context;
         }
         AppAction::TransitionToChannels(guild_id) => {
             state.input = String::new();
