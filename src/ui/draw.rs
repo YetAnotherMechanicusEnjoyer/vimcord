@@ -178,14 +178,13 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
             f.render_stateful_widget(list, chunks[0], &mut state);
         }
         AppState::SelectingChannel(guild_id) => {
-            let title = format!("Channels for Guild: {guild_id}");
-
             let filter_text = app.input.to_lowercase();
 
             let permission_context = &app.context;
 
-            let mut items: Vec<ListItem> = app
-                .channels
+            let mut list_items: Vec<ListItem> = Vec::new();
+
+            app.channels
                 .iter()
                 .filter(|c| {
                     let mut readable = false;
@@ -194,23 +193,71 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                     }
                     readable && c.name.to_lowercase().contains(&filter_text)
                 })
-                .map(|c| {
-                    let char = match c.channel_type {
-                        2 => '',
-                        _ => '',
-                    };
+                .for_each(|c| {
+                    if let Some(children) = &c.children {
+                        list_items.push(
+                            ListItem::new(format!("  {}", c.name))
+                                .style(Style::default().fg(Color::Gray)),
+                        );
 
-                    let color = match c.channel_type {
-                        2 => Color::LightCyan,
-                        0 => Color::LightBlue,
-                        _ => Color::LightMagenta,
-                    };
+                        children
+                            .iter()
+                            .filter(|c| {
+                                let mut readable = false;
+                                if let Some(context) = &permission_context {
+                                    readable = c.is_readable(context)
+                                }
+                                readable && c.name.to_lowercase().contains(&filter_text)
+                            })
+                            .for_each(|c| {
+                                let char = match c.channel_type {
+                                    15 => '',
+                                    5 => '',
+                                    4 => '',
+                                    2 => '',
+                                    _ => '',
+                                };
 
-                    ListItem::new(format!("{char} {}", c.name)).style(Style::default().fg(color))
-                })
-                .collect();
+                                let color = match c.channel_type {
+                                    15 => Color::LightYellow,
+                                    5 => Color::LightGreen,
+                                    4 => Color::Gray,
+                                    2 => Color::LightCyan,
+                                    0 => Color::LightBlue,
+                                    _ => Color::LightMagenta,
+                                };
 
-            let num_filtered = items.len();
+                                list_items.push(
+                                    ListItem::new(format!("{char} {}", c.name))
+                                        .style(Style::default().fg(color)),
+                                );
+                            });
+                    } else {
+                        let char = match c.channel_type {
+                            15 => '',
+                            5 => '',
+                            4 => '',
+                            2 => '',
+                            _ => '',
+                        };
+
+                        let color = match c.channel_type {
+                            15 => Color::LightYellow,
+                            5 => Color::LightGreen,
+                            4 => Color::Gray,
+                            2 => Color::LightCyan,
+                            0 => Color::LightBlue,
+                            _ => Color::LightMagenta,
+                        };
+
+                        list_items.push(
+                            ListItem::new(format!("{char} {}", c.name))
+                                .style(Style::default().fg(color)),
+                        )
+                    }
+                });
+
+            let num_filtered = list_items.len();
             app.selection_index = app.selection_index.min(num_filtered.saturating_sub(1));
 
             let hidden_items: Vec<ListItem> = app
@@ -225,6 +272,8 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                 })
                 .map(|c| {
                     let char = match c.channel_type {
+                        15 => '',
+                        4 => '',
                         2 => '',
                         _ => '',
                     };
@@ -236,10 +285,15 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                 .collect();
 
             for item in hidden_items {
-                items.push(item);
+                list_items.push(item);
             }
 
-            let list = List::new(items)
+            let title = format!(
+                "Channels for Guild: {guild_id} | Channels found: {num_filtered} | Actual index: {}",
+                app.selection_index
+            );
+
+            let list = List::new(list_items)
                 .block(
                     Block::default()
                         .title(Span::styled(title, Style::default().fg(Color::Yellow)))
@@ -282,14 +336,12 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                 for line in text_lines {
                     let width = UnicodeWidthStr::width(line) as u16;
 
-                    if width == 0 {
+                    if width == 0 || max_width == 0 {
                         estimated_height += 1;
                         continue;
                     }
 
-                    #[allow(clippy::manual_div_ceil)]
-                    let wrap_lines =
-                        (width as usize + max_width as usize - 1) / (max_width as usize);
+                    let wrap_lines = (width as usize).div_ceil(max_width as usize);
 
                     estimated_height += wrap_lines;
                 }
