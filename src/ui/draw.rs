@@ -228,7 +228,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                                 };
 
                                 list_items.push(
-                                    ListItem::new(format!("{char} {}", c.name))
+                                    ListItem::new(format!("  {char} {}", c.name))
                                         .style(Style::default().fg(color)),
                                 );
                             });
