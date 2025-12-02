@@ -92,12 +92,14 @@ jobs:
 
           ####### reduce binary size by removing debug symbols #######
           BINARY_NAME=${{ matrix.binary-name }}${{ matrix.binary-postfix }}
-          if [[ ${{ matrix.target }} == aarch64-unknown-linux-gnu ]]; then
-            GCC_PREFIX="aarch64-linux-gnu-"
-          else
-            GCC_PREFIX=""
+          if [[ ${{ runner.os }} != "Windows" ]]; then
+            if [[ ${{ matrix.target }} == aarch64-unknown-linux-gnu ]]; then
+              GCC_PREFIX="aarch64-linux-gnu-"
+            else
+              GCC_PREFIX=""
+            fi
+            "$GCC_PREFIX"strip $BINARY_NAME
           fi
-          "$GCC_PREFIX"strip $BINARY_NAME
 
           ########## create tar.gz ##########
           RELEASE_NAME=${{ matrix.binary-name }}-${{ github.ref_name }}-${{ matrix.os-name }}-${{ matrix.architecture }}
