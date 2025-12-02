@@ -4,11 +4,8 @@ run-name: CD | ${{ github.event_name }} by ${{ github.actor }} on '${{ github.re
 
 on:
   push:
-    branches:
-      - "main"
-  pull_request:
-    branches:
-      - "main"
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
 
 permissions:
   contents: write
@@ -103,7 +100,7 @@ jobs:
           "$GCC_PREFIX"strip $BINARY_NAME
 
           ########## create tar.gz ##########
-          RELEASE_NAME=${{ matrix.binary-name }}-${GITHUB_REF/refs\/tags\//}-${{ matrix.os-name }}-${{ matrix.architecture }}
+          RELEASE_NAME=${{ matrix.binary-name }}-${{ github.ref_name }}-${{ matrix.os-name }}-${{ matrix.architecture }}
           tar czvf $RELEASE_NAME.tar.gz $BINARY_NAME
 
           ########## create sha256 ##########
@@ -115,7 +112,7 @@ jobs:
       - name: Releasing assets
         uses: softprops/action-gh-release@v2
         with:
-          draft: true
+          draft: false
           files: |
             target/${{ matrix.target }}/release/${{ matrix.binary-name }}-*.tar.gz
             target/${{ matrix.target }}/release/${{ matrix.binary-name }}-*.sha256
