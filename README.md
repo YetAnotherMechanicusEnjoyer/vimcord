@@ -9,10 +9,12 @@
 
 - [About](#about)
   - [Terms of Service Notice](#terms-of-service-notice)
-- [Installation](#installation)
+- [Installation (Binaries)](#installation-binaries)
+- [Installation (Cargo)](#installation-cargo)
   - [Dependencies](#dependencies)
-  - [Compilation](#compilation)
-  - [Initialization](#initialization)
+  - [Compilation from crates.io](#compilation-from-cratesio)
+  - [Compilation from source](#compilation-from-source)
+- [Initialization](#initialization)
 - [Usage](#usage)
 - [Licence](#licence)
 
@@ -21,8 +23,8 @@
 > [!NOTE]
 > A Terminal UI Discord Client in Rust.
 
-> [!NOTE]
-> There are currently no releases, you must compile it yourself until I make a client with enough features to actually drop the binaries.
+> [!TIP]
+> Having [NerdFonts](https://www.nerdfonts.com/) installed provides a better experiences with icons.
 
 ### Terms of Service Notice
 >
@@ -41,14 +43,28 @@ The developers, contributors, and maintainers of this repository disclaim all li
 >
 > The user assumes all risk for any account actions, bans, or penalties issued by Discord due to improper use of this software.
 
-## Installation
+## Installation (Binaries)
+
+> [!NOTE]
+> Download the binaries from the [releases](https://github.com/YetAnotherMechanicusEnjoyer/Rivet/releases/)
+
+## Installation (Cargo)
 
 ### Dependencies
 
 > [!IMPORTANT]
-> Make sure to have [Rust](https://www.rust-lang.org/tools/install) installed & [NerdFonts](https://www.nerdfonts.com/) (for icons).
+> Make sure to have [Rust](https://www.rust-lang.org/tools/install) installed.
 
-### Compilation
+### Compilation from [crates.io](https://crates.io/crates/rivetui)
+
+> [!IMPORTANT]
+> Make sure that `~/.cargo/bin` is in your PATH env variable.
+
+```bash
+cargo install rivetui
+```
+
+### Compilation from source
 
 > [!NOTE]
 > Clone the repo somewhere and compile the program with [Cargo](https://doc.rust-lang.org/cargo/).
@@ -59,7 +75,10 @@ cd Rivet/
 cargo build --release
 ```
 
-### Initialization
+> [!TIP]
+> Either execute the binary `./target/release/rivetui` or put it inside a directory included in your PATH env variable.
+
+## Initialization
 
 > [!NOTE]
 > Either make a `.env` file at the root of the repository that contains the `DISCORD_TOKEN` variable, save it in your shell env or write it with the command.
@@ -82,20 +101,17 @@ export DISCORD_TOKEN="your-token-here"
 > Exemple of a command-line env variable :
 
 ```env
-DISCORD_TOKEN="your-token-here" cargo run --release
+DISCORD_TOKEN="your-token-here" rivetui
 ```
 
 ## Usage
 
-> [!NOTE]
-> Run the program with [Cargo](https://doc.rust-lang.org/cargo/).
-
 ```bash
-cargo run --release
+rivetui
 ```
 or 
 ```env
-DISCORD_TOKEN="your-token-here" cargo run --release
+DISCORD_TOKEN="your-token-here" rivetui
 ```
 
 ## Licence
