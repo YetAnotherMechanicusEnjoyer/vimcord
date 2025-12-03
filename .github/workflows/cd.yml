@@ -231,9 +231,12 @@ jobs:
           docker run --rm \
             -v $(pwd):/app \
             archlinux/archlinux:latest \
-            /bin/bash -c "pacman -Syu --noconfirm base-devel && \
-                         cd /app && \
-                         makepkg --printsrcinfo > .SRCINFO"
+            /bin/bash -c "\
+              pacman-key --init && \
+              pacman-key --populate archlinux && \
+              pacman -Syu --noconfirm base-devel && \
+              useradd -m builder && \
+              su - builder -c 'cd /app && makepkg --printsrcinfo > .SRCINFO'"
         shell: bash
 
       - name: Commit and Push to AUR
