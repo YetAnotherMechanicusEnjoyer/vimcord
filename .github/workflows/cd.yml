@@ -228,7 +228,12 @@ jobs:
       - name: Regenerate .SRCINFO
         run: |
           cd rivetui
-          makepkg --printsrcinfo > .SRCINFO
+          docker run --rm \
+            -v $(pwd):/app \
+            archlinux/archlinux:latest \
+            /bin/bash -c "pacman -Syu --noconfirm base-devel && \
+                         cd /app && \
+                         makepkg --printsrcinfo > .SRCINFO"
         shell: bash
 
       - name: Commit and Push to AUR
