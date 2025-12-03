@@ -1,4 +1,4 @@
-use std::{env, io, process, sync::Arc};
+use std::{env, io, path::PathBuf, process, sync::Arc};
 
 use crossterm::{
     execute,
@@ -26,6 +26,7 @@ mod signals;
 mod ui;
 
 const DISCORD_BASE_URL: &str = "https://discord.com/api/v10";
+const DEFAULT_EMOJIS_JSON: &str = include_str!("../emojis.json");
 
 pub type Error = Box<dyn std::error::Error + Send + Sync + 'static>;
 
@@ -102,17 +103,60 @@ pub struct App {
 }
 
 impl App {
-    fn load_emoji_map(path: &str) -> Vec<(String, String)> {
-        match std::fs::read_to_string(path) {
-            Ok(file) => match serde_json::from_str::<Vec<(String, String)>>(&file) {
-                Ok(map) => map,
-                Err(e) => {
-                    eprintln!("Error parsing emojis dictionary: {e}");
-                    Vec::new()
+    fn get_config_path() -> Option<PathBuf> {
+        let mut path = dirs::config_dir()?;
+        path.push("rivetui");
+        path.push("emojis.json");
+        Some(path)
+    }
+
+    fn load_emoji_map() -> Vec<(String, String)> {
+        let config_path = match Self::get_config_path() {
+            Some(p) => p,
+            None => {
+                eprintln!("Error: Could not determine configuration directory.");
+                return Vec::new();
+            }
+        };
+
+        match std::fs::read_to_string(&config_path) {
+            Ok(file) => Self::parse_emoji_content(&file),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                eprintln!(
+                    "Configuration file not found, creating default at: {}",
+                    config_path.display()
+                );
+
+                if let Some(parent) = config_path.parent()
+                    && let Err(e) = std::fs::create_dir_all(parent)
+                {
+                    eprintln!("Error creating configuration directory: {e}");
+                    return Self::parse_emoji_content(DEFAULT_EMOJIS_JSON);
                 }
-            },
+
+                match std::fs::write(&config_path, DEFAULT_EMOJIS_JSON) {
+                    Ok(_) => {
+                        eprintln!("Default emojis.json created successfully.");
+                        Self::parse_emoji_content(DEFAULT_EMOJIS_JSON)
+                    }
+                    Err(e) => {
+                        eprintln!("Error writing default emojis.json: {e}");
+                        Self::parse_emoji_content(DEFAULT_EMOJIS_JSON)
+                    }
+                }
+            }
             Err(e) => {
-                eprintln!("Error reading emojis.json file: {e}");
+                eprintln!("Error reading configuration file: {e}");
+                Self::parse_emoji_content(DEFAULT_EMOJIS_JSON)
+            }
+        }
+    }
+
+    fn parse_emoji_content(content: &str) -> Vec<(String, String)> {
+        match serde_json::from_str::<Vec<(String, String)>>(content) {
+            Ok(map) => map,
+            Err(e) => {
+                eprintln!("Error parsing emojis dictionary: {e}");
                 Vec::new()
             }
         }
@@ -141,7 +185,7 @@ async fn run_app(token: String) -> Result<(), Error> {
                 .to_string(),
         terminal_height: 20,
         terminal_width: 80,
-        emoji_map: App::load_emoji_map("emojis.json"),
+        emoji_map: App::load_emoji_map(),
         emoji_filter: String::new(),
         tick_count: 0,
         context: None,
