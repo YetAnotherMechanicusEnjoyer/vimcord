@@ -160,3 +160,59 @@ jobs:
       - run: cargo publish
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_TOKEN }}
+
+  check-makepkg:
+    name: Check Arch Makepkg
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Builder Docker Image & Run makepkg
+        run: |
+          docker build --file Dockerfile.arch --tag rivetui-makepkg-check:latest .
+
+  publish-aur:
+    name: Publishing to AUR
+    runs-on: ubuntu-latest
+    needs: [publish]
+
+    steps:
+      - name: Setup SSH keys
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.AUR_PRIVATE_KEY }}
+
+      - name: Config Git User
+        run: |
+          git config user.email "servoskull@omnissiah.mars"
+          git config user.name "Servo Skull"
+
+      - name: Extract Git Tag version
+        id: version_extract
+        run: echo "VERSION=$(echo ${{ github.ref_name }} | sed 's/^v//')" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Clone AUR Repository
+        run: |
+          git clone ssh://aur@aur.archlinux.org/rivetui.git
+          cd rivetui
+
+      - name: Update PKGBUILD
+        run: |
+          cd rivetui
+
+          sed -i "s/^pkgver=.*/pkgver=${{ steps.version_extract.outputs.VERSION }}/" PKGBUILD
+
+          sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+
+          sed -i "s/^sha256sums=.*/sha256sums=('SKIP')/" PKGBUILD
+
+      - name: Commit and Push to AUR
+        run: |
+          cd rivetui
+
+          git add PKGBUILD
+          git commit -m "Update rivetui to version ${{ steps.version_extract.outputs.VERSION }}"
+          git push
