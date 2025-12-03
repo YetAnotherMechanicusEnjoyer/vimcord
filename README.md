@@ -1,9 +1,21 @@
+<p align="center">
+  <a href="https://aur.archlinux.org/packages/rivetui">
+    <img src="https://img.shields.io/aur/version/rivetui?style=for-the-badge&logo=Arch-Linux&logoColor=white&color=1793D1"></a> 
+  <a href="https://crates.io/crates/rivetui">
+    <img src="https://img.shields.io/crates/v/rivetui?style=for-the-badge&logo=rust&logoColor=white&color=FF4E00"></a>
+  <a href="https://crates.io/crates/rivetui">
+    <img src="https://img.shields.io/crates/d/rivetui?style=for-the-badge&logo=crates-io&logoColor=white&color=D07300"></a>
+  <a href="https://github.com/YetAnotherMechanicusEnjoyer/Rivet/blob/5392a5b9f8982187b02d11ccd94dcd952fee36b6/LICENSE">
+    <img src="https://img.shields.io/github/license/YetAnotherMechanicusEnjoyer/Rivet?style=for-the-badge&logo=github&color=2EA44F"></a>
+</p>
+<p align="center">
+  <a href="https://github.com/YetAnotherMechanicusEnjoyer/Rivet/actions/workflows/rust.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/YetAnotherMechanicusEnjoyer/Rivet/rust.yml?style=for-the-badge&logo=github-actions&logoColor=white&color=2088FF&label=CI"></a>
+  <a href="https://github.com/YetAnotherMechanicusEnjoyer/Rivet/actions/workflows/cd.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/YetAnotherMechanicusEnjoyer/Rivet/cd.yml?style=for-the-badge&logo=github-actions&logoColor=white&color=2088FF&label=CD"></a> 
+</p>
+
 # Rivet
-
-> [!WARNING]
-> **Work In Progress**
-
-<img src="./readme/wip.gif" alt="Work In Progress">
 
 ## Table of Content
 
@@ -45,7 +57,7 @@ The developers, contributors, and maintainers of this repository disclaim all li
 
 ## Installation ([AUR](https://aur.archlinux.org/packages/rivetui))
 
-> [!NOTE]
+> [!IMPORTANT]
 > Make sure to have [YaY](https://github.com/Jguer/yay) installed.
 
 ```bash
@@ -57,7 +69,7 @@ yay -S rivetui
 > [!NOTE]
 > Download the binaries from the [releases](https://github.com/YetAnotherMechanicusEnjoyer/Rivet/releases/)
 
-## Installation (Cargo)
+## Installation ([Cargo](https://doc.rust-lang.org/cargo/))
 
 ### Dependencies
 
@@ -76,7 +88,7 @@ cargo install rivetui
 ### Compilation from source
 
 > [!NOTE]
-> Clone the repo somewhere and compile the program with [Cargo](https://doc.rust-lang.org/cargo/).
+> Clone the repo somewhere and compile the program.
 
 ```bash
 git clone https://github.com/YetAnotherMechanicusEnjoyer/Rivet
@@ -125,4 +137,4 @@ DISCORD_TOKEN="your-token-here" rivetui
 
 ## Licence
 
-[MIT](./LICENSE)
+[![MIT](https://img.shields.io/github/license/YetAnotherMechanicusEnjoyer/Rivet?style=for-the-badge&logo=github&color=2EA44F)](https://github.com/YetAnotherMechanicusEnjoyer/Rivet/blob/5392a5b9f8982187b02d11ccd94dcd952fee36b6/LICENSE)
