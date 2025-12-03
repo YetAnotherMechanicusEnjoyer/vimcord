@@ -197,6 +197,10 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.AUR_PRIVATE_KEY }}
 
+      - name: Add AUR host key
+        run: ssh-keyscan -H aur.archlinux.org >> ~/.ssh/known_hosts
+        shell: bash
+
       - name: Extract Git Tag version
         id: version_extract
         run: echo "VERSION=$(echo ${{ github.ref_name }} | sed 's/^v//')" >> $GITHUB_OUTPUT
