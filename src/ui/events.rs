@@ -374,18 +374,30 @@ async fn move_selection(state: &mut MutexGuard<'_, App>, n: i32, total_filtered_
                     .filter(|c| {
                         let mut readable = false;
                         if let Some(context) = &permission_context {
-                            readable = c.is_readable(context);
+                            readable = c.is_readable(context)
                         }
                         readable && c.name.to_lowercase().contains(&state.input.to_lowercase())
                     })
                     .for_each(|c| {
                         len += 1;
                         if let Some(children) = &c.children {
-                            children.iter().for_each(|_| len += 1);
+                            children
+                                .iter()
+                                .filter(|c| {
+                                    let mut readable = false;
+                                    if let Some(context) = &permission_context {
+                                        readable = c.is_readable(context)
+                                    }
+                                    readable
+                                        && c.name
+                                            .to_lowercase()
+                                            .contains(&state.input.to_lowercase())
+                                })
+                                .for_each(|_| {
+                                    len += 1;
+                                });
                         }
                     });
-
-                len -= 1;
 
                 if n < 0 {
                     state.selection_index = if state.selection_index == 0 {
