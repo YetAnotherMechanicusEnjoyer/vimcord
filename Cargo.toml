@@ -1,6 +1,6 @@
 [package]
 name = "rivetui"
-version = "0.1.2"
+version = "0.2.12"
 edition = "2024"
 description = "A Terminal UI Discord Client in Rust"
 repository = "https://github.com/YetAnotherMechanicusEnjoyer/Rivet"
