@@ -4,42 +4,21 @@ run-name: AUR Publisher | ${{ github.event_name }} by ${{ github.actor }} on '${
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+*"
 
 permissions:
   contents: write
 
+env:
+  pkgname: ${{ github.ref == 'refs/heads/main' && 'rivetui-git' || 'rivetui' }}
+
 jobs:
-  check-makepkg:
-    name: Check Arch Makepkg
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Extract Git Tag version
-        id: version_extract
-        run: echo "VERSION=$(echo ${{ github.ref_name }} | sed 's/^v//')" >> $GITHUB_OUTPUT
-        shell: bash
-
-      - name: Update PKGBUILD
-        run: |
-          sed -i "s/^pkgver=.*/pkgver=${{ steps.version_extract.outputs.VERSION }}/" PKGBUILD
-
-          sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
-
-          sed -i "s/^sha256sums=.*/sha256sums=('SKIP')/" PKGBUILD
-
-      - name: Builder Docker Image & Run makepkg
-        run: |
-          docker build --file arch.Dockerfile --tag rivetui-makepkg-check:latest .
-
   publish-aur:
     name: Publishing to AUR
     runs-on: ubuntu-latest
-    needs: [check-makepkg]
 
     steps:
       - name: Setup SSH keys
@@ -52,32 +31,37 @@ jobs:
         shell: bash
 
       - name: Extract Git Tag version
+        if: startsWith(github.ref, 'refs/tags/')
         id: version_extract
         run: echo "VERSION=$(echo ${{ github.ref_name }} | sed 's/^v//')" >> $GITHUB_OUTPUT
         shell: bash
 
       - name: Clone AUR Repository
         run: |
-          git clone ssh://aur@aur.archlinux.org/rivetui.git
+          git clone ssh://aur@aur.archlinux.org/"${{ env.pkgname }}".git
 
-          cd rivetui
+          cd "${{ env.pkgname }}"
 
           git config user.email "servoskull@omnissiah.mars"
           git config user.name "Servo Skull"
 
       - name: Update PKGBUILD
         run: |
-          cd rivetui
+          cd "${{ env.pkgname }}"
 
-          sed -i "s/^pkgver=.*/pkgver=${{ steps.version_extract.outputs.VERSION }}/" PKGBUILD
+          if [[ ${{ github.ref }} == refs/tags/* ]]; then
+            sed -i "s/^pkgver=.*/pkgver=${{ steps.version_extract.outputs.VERSION }}/" PKGBUILD
+          fi
 
           sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
 
           sed -i "s/^sha256sums=.*/sha256sums=('SKIP')/" PKGBUILD
 
+          sed -i "s/^pkgname=.*/pkgname=${{ env.pkgname }}" PKGBUILD
+
       - name: Regenerate .SRCINFO
         run: |
-          cd rivetui
+          cd "${{ env.pkgname }}"
           docker run --rm \
             -v $(pwd):/app \
             archlinux/archlinux:latest \
@@ -93,13 +77,13 @@ jobs:
       - name: AUR Repository Permissions
         run: |
           CURRENT_USER=$(whoami)
-          sudo chown -R $CURRENT_USER:$CURRENT_USER rivetui/
+          sudo chown -R $CURRENT_USER:$CURRENT_USER "${{ env.pkgname }}"/
         shell: bash
 
       - name: Commit and Push to AUR
         run: |
-          cd rivetui
+          cd "${{ env.pkgname }}"
 
           git add PKGBUILD .SRCINFO
-          git commit -m "Update rivetui to version ${{ steps.version_extract.outputs.VERSION }}"
+          git commit -m "Update ${{ env.pkgname }} to version ${{ steps.version_extract.outputs.VERSION }}"
           git push
