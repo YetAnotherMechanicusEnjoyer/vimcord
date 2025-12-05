@@ -39,7 +39,7 @@ jobs:
           if [[ ${{ github.ref }} == refs/tags/* ]]; then
             echo "VERSION=$(echo ${{ github.ref_name }} | sed 's/^v//')" >> $GITHUB_OUTPUT
           else
-            cat Cargo.toml | grep 'version = ' | head -n 1 | sed 's/version = "//' | sed 's/"//'
+            cat Cargo.toml | grep 'version = ' | head -n 1 | sed 's/version = "//' | sed 's/"//' >> $GITHUB_OUTPUT
           fi
         shell: bash
 
