@@ -1,9 +1,0 @@
-services:
-  aur:
-    build:
-      context: .
-      dockerfile: dev.Dockerfile
-    restart: on-failure
-    env_file:
-      - ./.env
-    entrypoint: bash
