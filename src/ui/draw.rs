@@ -7,7 +7,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::{
     App, AppState,
-    api::{DM, Emoji, Guild, Message},
+    api::{Channel, DM, Emoji, Guild, Message},
 };
 
 pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
@@ -184,76 +184,73 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
 
             let mut list_items: Vec<ListItem> = Vec::new();
 
+            let should_display_channel_content = |c: &Channel| {
+                let is_readable = permission_context
+                    .as_ref()
+                    .is_some_and(|context| c.is_readable(context));
+
+                is_readable
+                    && (filter_text.is_empty() || c.name.to_lowercase().contains(&filter_text))
+            };
+
             app.channels
                 .iter()
                 .filter(|c| {
-                    let mut readable = false;
-                    if let Some(context) = &permission_context {
-                        readable = c.is_readable(context)
+                    if c.children.is_none() && c.channel_type != 4 {
+                        return should_display_channel_content(c);
                     }
-                    readable && c.name.to_lowercase().contains(&filter_text)
+
+                    if c.channel_type == 4 {
+                        if filter_text.is_empty() || c.name.to_lowercase().contains(&filter_text) {
+                            return true;
+                        }
+
+                        if let Some(children) = &c.children {
+                            return children.iter().any(should_display_channel_content);
+                        }
+                    }
+
+                    false
                 })
                 .for_each(|c| {
-                    if let Some(children) = &c.children {
-                        list_items.push(
-                            ListItem::new(format!("  {}", c.name))
-                                .style(Style::default().fg(Color::Gray)),
-                        );
+                    let get_channel_style = |channel_type: u8| -> (char, Color) {
+                        match channel_type {
+                            15 => ('', Color::LightYellow),
+                            13 => ('󱝉', Color::LightRed),
+                            5 => ('', Color::LightGreen),
+                            4 => ('', Color::Gray),
+                            2 => ('', Color::LightCyan),
+                            0 => ('', Color::LightBlue),
+                            _ => ('', Color::LightMagenta),
+                        }
+                    };
 
-                        children
-                            .iter()
-                            .filter(|c| {
-                                let mut readable = false;
-                                if let Some(context) = &permission_context {
-                                    readable = c.is_readable(context)
-                                }
-                                readable && c.name.to_lowercase().contains(&filter_text)
-                            })
-                            .for_each(|c| {
-                                let char = match c.channel_type {
-                                    15 => '',
-                                    5 => '',
-                                    4 => '',
-                                    2 => '',
-                                    _ => '',
-                                };
-
-                                let color = match c.channel_type {
-                                    15 => Color::LightYellow,
-                                    5 => Color::LightGreen,
-                                    4 => Color::Gray,
-                                    2 => Color::LightCyan,
-                                    0 => Color::LightBlue,
-                                    _ => Color::LightMagenta,
-                                };
-
-                                list_items.push(
-                                    ListItem::new(format!("  {char} {}", c.name))
-                                        .style(Style::default().fg(color)),
-                                );
-                            });
-                    } else {
-                        let char = match c.channel_type {
-                            15 => '',
-                            5 => '',
-                            4 => '',
-                            2 => '',
-                            _ => '',
-                        };
-
-                        let color = match c.channel_type {
-                            15 => Color::LightYellow,
-                            5 => Color::LightGreen,
-                            4 => Color::Gray,
-                            2 => Color::LightCyan,
-                            0 => Color::LightBlue,
-                            _ => Color::LightMagenta,
-                        };
-
+                    if c.channel_type == 4 {
+                        let (char, color) = get_channel_style(c.channel_type);
                         list_items.push(
                             ListItem::new(format!("{char} {}", c.name))
                                 .style(Style::default().fg(color)),
-                        )
+                        );
+
+                        if let Some(children) = &c.children {
+                            children
+                                .iter()
+                                .filter(|c| should_display_channel_content(c))
+                                .for_each(|child| {
+                                    let (char, color) = get_channel_style(child.channel_type);
+
+                                    list_items.push(
+                                        ListItem::new(format!("  {char} {}", child.name))
+                                            .style(Style::default().fg(color)),
+                                    );
+                                });
+                        }
+                    } else {
+                        let (char, color) = get_channel_style(c.channel_type);
+                        list_items.push(
+                            ListItem::new(format!("{char} {}", c.name))
+                                .style(Style::default().fg(color)),
+                        );
                     }
                 });
 
@@ -263,30 +260,45 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
             let hidden_items: Vec<ListItem> = app
                 .channels
                 .iter()
-                .filter(|c| {
-                    if let Some(context) = &permission_context {
-                        !c.is_readable(context)
+                .flat_map(|c| {
+                    if c.channel_type == 4 {
+                        let mut items: Vec<&Channel> = Vec::new();
+
+                        if let Some(children) = &c.children {
+                            items.extend(children.iter().filter(|child| {
+                                permission_context
+                                    .as_ref()
+                                    .is_some_and(|context| !child.is_readable(context))
+                            }));
+                        }
+                        items
+                    } else if permission_context
+                        .as_ref()
+                        .is_some_and(|context| !c.is_readable(context))
+                    {
+                        vec![c]
                     } else {
-                        false
+                        vec![]
                     }
                 })
                 .map(|c| {
                     let char = match c.channel_type {
                         15 => '',
+                        13 => '󱝉',
+                        5 => '',
                         4 => '',
                         2 => '',
+                        0 => '',
                         _ => '',
                     };
 
                     let color = Color::DarkGray;
 
-                    ListItem::new(format!("{char} {}", c.name)).style(Style::default().fg(color))
+                    ListItem::new(format!(" {char} {}", c.name)).style(Style::default().fg(color))
                 })
                 .collect();
 
-            for item in hidden_items {
-                list_items.push(item);
-            }
+            list_items.extend(hidden_items);
 
             let title = format!(
                 "Channels for Guild: {guild_id} | Channels found: {} | Actual index: {}",
