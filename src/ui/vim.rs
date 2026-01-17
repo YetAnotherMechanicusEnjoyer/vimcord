@@ -61,28 +61,45 @@ fn get_motion_range(state: &MutexGuard<'_, App>, motion: VimMotion) -> (usize, u
     let end = match motion {
         VimMotion::WordForward => {
             let mut pos = start;
-            // Skip leading spaces
-            while let Some(c) = input[pos..].chars().next() {
+            if let Some(c) = input[pos..].chars().next() {
                 if c.is_whitespace() {
-                    pos += c.len_utf8();
+                    // Cursor is on whitespace: skip whitespace only, stop at start of next word
+                    while pos < len {
+                        if let Some(c) = input[pos..].chars().next() {
+                            if c.is_whitespace() {
+                                pos += c.len_utf8();
+                            } else {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
                 } else {
-                    break;
-                }
-            }
-            // Skip current word
-            while let Some(c) = input[pos..].chars().next() {
-                if !c.is_whitespace() {
-                    pos += c.len_utf8();
-                } else {
-                    break;
-                }
-            }
-            // Skip spaces to next word
-            while let Some(c) = input[pos..].chars().next() {
-                if c.is_whitespace() {
-                    pos += c.len_utf8();
-                } else {
-                    break;
+                    // Cursor is on a word/non-whitespace: skip rest of this word...
+                    while pos < len {
+                        if let Some(c) = input[pos..].chars().next() {
+                            if !c.is_whitespace() {
+                                pos += c.len_utf8();
+                            } else {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                    // ...then skip following whitespace to land at start of next word
+                    while pos < len {
+                        if let Some(c) = input[pos..].chars().next() {
+                            if c.is_whitespace() {
+                                pos += c.len_utf8();
+                            } else {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
                 }
             }
             pos.min(len)
@@ -99,17 +116,25 @@ fn get_motion_range(state: &MutexGuard<'_, App>, motion: VimMotion) -> (usize, u
             if let Some(c) = prev_char {
                 if c.is_whitespace() {
                     // We're after whitespace - skip all whitespace backwards
-                    while let Some(c) = input[..pos].chars().next_back() {
-                        if c.is_whitespace() {
-                            pos -= c.len_utf8();
+                    while pos > 0 {
+                        if let Some(c) = input[..pos].chars().next_back() {
+                            if c.is_whitespace() {
+                                pos -= c.len_utf8();
+                            } else {
+                                break;
+                            }
                         } else {
                             break;
                         }
                     }
                     // Now skip the word backwards to find its beginning
-                    while let Some(c) = input[..pos].chars().next_back() {
-                        if !c.is_whitespace() {
-                            pos -= c.len_utf8();
+                    while pos > 0 {
+                        if let Some(c) = input[..pos].chars().next_back() {
+                            if !c.is_whitespace() {
+                                pos -= c.len_utf8();
+                            } else {
+                                break;
+                            }
                         } else {
                             break;
                         }
@@ -127,26 +152,38 @@ fn get_motion_range(state: &MutexGuard<'_, App>, motion: VimMotion) -> (usize, u
                         // At start of word - move to previous word
                         pos -= c.len_utf8(); // Move past the first char of current word
                         // Skip whitespace backwards
-                        while let Some(c) = input[..pos].chars().next_back() {
-                            if c.is_whitespace() {
-                                pos -= c.len_utf8();
+                        while pos > 0 {
+                            if let Some(c) = input[..pos].chars().next_back() {
+                                if c.is_whitespace() {
+                                    pos -= c.len_utf8();
+                                } else {
+                                    break;
+                                }
                             } else {
                                 break;
                             }
                         }
                         // Skip the previous word backwards
-                        while let Some(c) = input[..pos].chars().next_back() {
-                            if !c.is_whitespace() {
-                                pos -= c.len_utf8();
+                        while pos > 0 {
+                            if let Some(c) = input[..pos].chars().next_back() {
+                                if !c.is_whitespace() {
+                                    pos -= c.len_utf8();
+                                } else {
+                                    break;
+                                }
                             } else {
                                 break;
                             }
                         }
                     } else {
                         // In middle of word - go to start of current word
-                        while let Some(c) = input[..pos].chars().next_back() {
-                            if !c.is_whitespace() {
-                                pos -= c.len_utf8();
+                        while pos > 0 {
+                            if let Some(c) = input[..pos].chars().next_back() {
+                                if !c.is_whitespace() {
+                                    pos -= c.len_utf8();
+                                } else {
+                                    break;
+                                }
                             } else {
                                 break;
                             }
@@ -257,7 +294,7 @@ pub async fn handle_vim_keys(
         'l' => {
             if let Some(c) = state.input[state.cursor_position..].chars().next() {
                 let next_pos = state.cursor_position + c.len_utf8();
-                if next_pos <= state.input.len() {
+                if next_pos < state.input.len() {
                     state.cursor_position = next_pos;
                 }
             }
@@ -313,7 +350,8 @@ pub async fn handle_vim_keys(
             }
         }
         ':' => {
-            tx_action.send(AppAction::SelectEmoji).await.ok();
+            // In the future, this could enter command mode.
+            // For now, we do nothing to avoid conflict with standard Vim behavior.
         }
         _ => {
             if let Some(vim_state) = &mut state.vim_state {

@@ -24,8 +24,32 @@ fn insert_char_at_cursor(state: &mut MutexGuard<'_, App>, c: char) {
             if c == ' ' {
                 state.state = AppState::Chatting(channel_id.clone());
                 state.emoji_filter.clear();
+                state.emoji_filter_start = None;
             } else {
-                state.emoji_filter.push(c);
+                // Recompute emoji_filter based on the current input and emoji_filter_start.
+                if let Some(start) = state.emoji_filter_start {
+                    let filter_start = start + ':'.len_utf8();
+                    if state.cursor_position <= start || filter_start > state.input.len() {
+                        state.emoji_filter.clear();
+                    } else {
+                        let end = std::cmp::min(state.cursor_position, state.input.len());
+                        if filter_start <= end {
+                            state.emoji_filter = state.input[filter_start..end].to_string();
+                        } else {
+                            state.emoji_filter.clear();
+                        }
+                    }
+                } else {
+                    state.emoji_filter.clear();
+                }
+
+                if state.emoji_filter.is_empty() {
+                    state.state = AppState::Chatting(channel_id.clone());
+                    state.emoji_filter_start = None;
+                    state.status_message =
+                        "Chatting in channel. Press Enter to send message. Esc to return channels"
+                            .to_string();
+                }
             }
             state.selection_index = 0;
         }
@@ -72,10 +96,7 @@ pub async fn handle_input_events(
                                             tx.send(AppAction::SelectNext).await.ok();
                                         }
                                         KeyCode::Char(c) => {
-                                            match c {
-                                                ':' => tx.send(AppAction::SelectEmoji).await.ok(),
-                                                c => tx.send(AppAction::InputChar(c)).await.ok(),
-                                            };
+                                            tx.send(AppAction::InputChar(c)).await.ok();
                                         }
                                         _ => {}
                                     }
@@ -282,12 +303,9 @@ async fn input_submit(
             tx_action.send(AppAction::EndLoading).await.ok();
         }
         AppState::EmojiSelection(channel_id) => {
-            // Use tracked start position if available, otherwise fall back to calculation
-            let start_pos = state.emoji_filter_start.unwrap_or_else(|| {
-                state
-                    .cursor_position
-                    .saturating_sub(state.emoji_filter.len() + ':'.len_utf8())
-            });
+            let Some(start_pos) = state.emoji_filter_start else {
+                return None;
+            };
             let end_pos = start_pos + ':'.len_utf8() + state.emoji_filter.len();
 
             if state.selection_index < filtered_unicode.len() {
@@ -580,6 +598,11 @@ pub async fn handle_keys_events(
             state.cursor_position += text.len();
         }
         AppAction::InputChar(c) => {
+            if c == ':' && (!state.vim_mode || state.mode == InputMode::Insert) {
+                tx_action.send(AppAction::SelectEmoji).await.ok();
+                return None;
+            }
+
             if !state.vim_mode {
                 insert_char_at_cursor(&mut state, c);
             } else {
@@ -618,6 +641,12 @@ pub async fn handle_keys_events(
             }
         }
         AppAction::InputBackspace => {
+            if state.vim_mode && state.mode == InputMode::Normal {
+                if let Some(c) = state.input[..state.cursor_position].chars().next_back() {
+                    state.cursor_position -= c.len_utf8();
+                }
+                return None;
+            }
             let current_state = state.state.clone();
             match current_state {
                 AppState::Chatting(_) => {
@@ -634,10 +663,33 @@ pub async fn handle_keys_events(
                         let char_len = c.len_utf8();
                         state.input.remove(pos - char_len);
                         state.cursor_position -= char_len;
-                        state.emoji_filter.pop();
+                        // Recompute emoji_filter based on the current input and emoji_filter_start.
+                        if let Some(start) = state.emoji_filter_start {
+                            // Position just after the ':' that started the emoji filter.
+                            let filter_start = start + ':'.len_utf8();
+                            if state.cursor_position <= start || filter_start > state.input.len() {
+                                // Cursor moved to or before the ':' (or indices are invalid);
+                                // clear the filter as we're no longer within the emoji filter.
+                                state.emoji_filter.clear();
+                            } else {
+                                let end = std::cmp::min(state.cursor_position, state.input.len());
+                                if filter_start <= end {
+                                    state.emoji_filter = state.input[filter_start..end].to_string();
+                                } else {
+                                    state.emoji_filter.clear();
+                                }
+                            }
+                        } else {
+                            // No known start of emoji filter; be conservative and clear it.
+                            state.emoji_filter.clear();
+                        }
+
                         if state.emoji_filter.is_empty() {
                             state.state = AppState::Chatting(channel_id.clone());
-                            state.status_message = "Chatting in channel. Press Enter to send message. Esc to return to channels".to_string();
+                            state.emoji_filter_start = None;
+                            state.status_message =
+                                "Chatting in channel. Press Enter to send message. Esc to return to channels"
+                                    .to_string();
                         }
                         state.selection_index = 0;
                     }
