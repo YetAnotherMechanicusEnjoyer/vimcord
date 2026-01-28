@@ -139,7 +139,11 @@ async fn input_submit(
             let dms: Vec<&DM> = state
                 .dms
                 .iter()
-                .filter(|d| d.get_name().to_lowercase().contains(&state.input))
+                .filter(|d| {
+                    d.get_name()
+                        .to_lowercase()
+                        .contains(&state.input.to_lowercase())
+                })
                 .collect();
 
             if dms.is_empty() {
@@ -163,7 +167,7 @@ async fn input_submit(
             let guilds: Vec<&Guild> = state
                 .guilds
                 .iter()
-                .filter(|g| g.name.to_lowercase().contains(&state.input))
+                .filter(|g| g.name.to_lowercase().contains(&state.input.to_lowercase()))
                 .collect();
 
             if guilds.is_empty() {
