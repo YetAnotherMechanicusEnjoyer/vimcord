@@ -402,9 +402,35 @@ pub async fn handle_vim_keys(
         }
         'd' => {
             if let Some(VimOperator::Delete) = current_operator {
-                // dd case
-                state.input.clear();
-                state.cursor_position = 0;
+                let current_pos = state.cursor_position;
+                let current_line_start = state.input[..current_pos]
+                    .rfind('\n')
+                    .map(|i| i + 1)
+                    .unwrap_or(0);
+
+                if let Some(newline_offset) = state.input[current_pos..].find('\n') {
+                    let next_newline_index = current_pos + newline_offset;
+                    state
+                        .input
+                        .drain(current_line_start..next_newline_index + 1);
+                    state.cursor_position = current_line_start;
+                } else {
+                    if current_line_start > 0 {
+                        let len = state.input.len();
+                        state.input.drain(current_line_start - 1..len);
+                        let prev_line_start = state.input[..current_line_start - 1]
+                            .rfind('\n')
+                            .map(|i| i + 1)
+                            .unwrap_or(0);
+                        state.cursor_position = prev_line_start;
+                    } else {
+                        state.input.clear();
+                        state.cursor_position = 0;
+                    }
+                }
+
+                clamp_cursor(&mut state);
+
                 if let Some(vim_state) = &mut state.vim_state {
                     vim_state.operator = None;
                 }
