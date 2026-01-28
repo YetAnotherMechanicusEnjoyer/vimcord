@@ -250,7 +250,11 @@ pub async fn handle_vim_keys(
             state.mode = InputMode::Insert;
         }
         'I' => {
-            state.cursor_position = 0;
+            let start_of_line = state.input[..state.cursor_position]
+                .rfind('\n')
+                .map(|i| i + 1)
+                .unwrap_or(0);
+            state.cursor_position = start_of_line;
             state.mode = InputMode::Insert;
         }
         'a' => {
@@ -260,7 +264,11 @@ pub async fn handle_vim_keys(
             state.mode = InputMode::Insert;
         }
         'A' => {
-            state.cursor_position = state.input.len();
+            let end_of_line = state.input[state.cursor_position..]
+                .find('\n')
+                .map(|i| state.cursor_position + i)
+                .unwrap_or(state.input.len());
+            state.cursor_position = end_of_line;
             state.mode = InputMode::Insert;
         }
         'o' => {

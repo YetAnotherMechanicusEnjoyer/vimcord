@@ -539,7 +539,9 @@ pub async fn handle_keys_events(
             if state.vim_mode && state.mode == InputMode::Insert {
                 state.mode = InputMode::Normal;
                 if let Some(c) = state.input[..state.cursor_position].chars().next_back() {
-                    state.cursor_position -= c.len_utf8();
+                    if c != '\n' {
+                        state.cursor_position -= c.len_utf8();
+                    }
                 }
                 vim::clamp_cursor(&mut state);
                 return None;
