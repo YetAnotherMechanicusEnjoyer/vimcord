@@ -423,19 +423,17 @@ pub async fn handle_vim_keys(
                         .input
                         .drain(current_line_start..next_newline_index + 1);
                     state.cursor_position = current_line_start;
+                } else if current_line_start > 0 {
+                    let len = state.input.len();
+                    state.input.drain(current_line_start - 1..len);
+                    let prev_line_start = state.input[..current_line_start - 1]
+                        .rfind('\n')
+                        .map(|i| i + 1)
+                        .unwrap_or(0);
+                    state.cursor_position = prev_line_start;
                 } else {
-                    if current_line_start > 0 {
-                        let len = state.input.len();
-                        state.input.drain(current_line_start - 1..len);
-                        let prev_line_start = state.input[..current_line_start - 1]
-                            .rfind('\n')
-                            .map(|i| i + 1)
-                            .unwrap_or(0);
-                        state.cursor_position = prev_line_start;
-                    } else {
-                        state.input.clear();
-                        state.cursor_position = 0;
-                    }
+                    state.input.clear();
+                    state.cursor_position = 0;
                 }
 
                 clamp_cursor(&mut state);

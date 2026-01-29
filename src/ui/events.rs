@@ -542,10 +542,10 @@ pub async fn handle_keys_events(
             // In non-vim mode (or vim Normal mode), Esc triggers navigation (handled below).
             if state.vim_mode && state.mode == InputMode::Insert {
                 state.mode = InputMode::Normal;
-                if let Some(c) = state.input[..state.cursor_position].chars().next_back() {
-                    if c != '\n' {
-                        state.cursor_position -= c.len_utf8();
-                    }
+                if let Some(c) = state.input[..state.cursor_position].chars().next_back()
+                    && c != '\n'
+                {
+                    state.cursor_position -= c.len_utf8();
                 }
                 vim::clamp_cursor(&mut state);
                 return None;

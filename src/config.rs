@@ -24,7 +24,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             version: 1,
-            vim_mode: false,
+            vim_mode: true,
             emoji_map: Vec::new(),
         }
     }
