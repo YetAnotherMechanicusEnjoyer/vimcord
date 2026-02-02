@@ -161,10 +161,11 @@ async fn input_submit(
                 .ok();
         }
         AppState::SelectingGuild => {
+            let filter_text = state.input.to_lowercase();
             let guilds: Vec<&Guild> = state
                 .guilds
                 .iter()
-                .filter(|g| g.name.to_lowercase().contains(&state.input.to_lowercase()))
+                .filter(|g| g.name.to_lowercase().contains(&filter_text))
                 .collect();
 
             if guilds.is_empty() {
@@ -229,6 +230,7 @@ async fn input_submit(
             let permission_context = &state.context;
             let mut text_channels: Vec<&Channel> = Vec::new();
 
+            let filter_text = state.input.to_lowercase();
             state
                 .channels
                 .iter()
@@ -237,7 +239,7 @@ async fn input_submit(
                     if let Some(context) = &permission_context {
                         readable = c.is_readable(context)
                     }
-                    readable && c.name.to_lowercase().contains(&state.input.to_lowercase())
+                    readable && c.name.to_lowercase().contains(&filter_text)
                 })
                 .for_each(|c| {
                     if let Some(children) = &c.children {
@@ -250,8 +252,7 @@ async fn input_submit(
                                 if let Some(context) = &permission_context {
                                     readable = c.is_readable(context)
                                 }
-                                readable
-                                    && c.name.to_lowercase().contains(&state.input.to_lowercase())
+                                readable && c.name.to_lowercase().contains(&filter_text)
                             })
                             .for_each(|c| {
                                 text_channels.push(c);
