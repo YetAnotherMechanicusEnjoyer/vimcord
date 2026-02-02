@@ -383,22 +383,6 @@ pub async fn handle_vim_keys(
         }
         'h' => {
             if let Some(c) = state.input[..state.cursor_position].chars().next_back() {
-                use std::io::Write;
-                if let Ok(mut file) = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open("vim_debug.log")
-                {
-                    let _ = writeln!(
-                        file,
-                        "h pressed. pos={}, prev_char={:?} (0x{:x}, is_control={})",
-                        state.cursor_position,
-                        c,
-                        c as u32,
-                        c.is_control()
-                    );
-                }
-
                 if !c.is_control() || c == '\t' {
                     state.cursor_position -= c.len_utf8();
                 }
@@ -406,22 +390,6 @@ pub async fn handle_vim_keys(
         }
         'l' => {
             if let Some(c) = state.input[state.cursor_position..].chars().next() {
-                use std::io::Write;
-                if let Ok(mut file) = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open("vim_debug.log")
-                {
-                    let _ = writeln!(
-                        file,
-                        "l pressed. pos={}, char={:?} (0x{:x}, is_control={})",
-                        state.cursor_position,
-                        c,
-                        c as u32,
-                        c.is_control()
-                    );
-                }
-
                 if c != '\n' {
                     let next_pos = state.cursor_position + c.len_utf8();
                     // Optional: check if next_pos lands on newline and decide whether to step onto it?
