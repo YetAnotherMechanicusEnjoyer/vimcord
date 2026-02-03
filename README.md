@@ -21,20 +21,6 @@
     <img src="https://img.shields.io/github/actions/workflow/status/YetAnotherMechanicusEnjoyer/Rivet/bin.yml?style=for-the-badge&logo=github-actions&logoColor=white&color=2088FF&label=Binaries"></a>
 </p>
 
-## Table of Content
-
-- [About](#about)
-  - [Terms of Service Notice](#terms-of-service-notice)
-- [Installation (AUR)](#installation-aur)
-- [Installation (Binaries)](#installation-binaries)
-- [Installation (Cargo)](#installation-cargo)
-  - [Dependencies](#dependencies)
-  - [Compilation from crates.io](#compilation-from-cratesio)
-  - [Compilation from source](#compilation-from-source)
-- [Initialization](#initialization)
-- [Usage](#usage)
-- [Licence](#licence)
-
 ## About
 
 > [!NOTE]
