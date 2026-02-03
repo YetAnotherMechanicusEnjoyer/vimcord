@@ -54,19 +54,19 @@ yay -S rivetui-git
 
 Download prebuilt binaries from: [releases](https://github.com/YetAnotherMechanicusEnjoyer/Rivet/releases/)
 
-### ([Cargo](https://doc.rust-lang.org/cargo/))
+### [Cargo](https://doc.rust-lang.org/cargo/)
 
 Requires [Rust](https://www.rust-lang.org/tools/install) 
 
 Make sure that `~/.cargo/bin` is in your PATH env variable.
 
-#### From [crates.io](https://crates.io/crates/rivetui)
+#### With [crates.io](https://crates.io/crates/rivetui)
 
 ```bash
 cargo install rivetui
 ```
 
-### From source
+### From Source
 
 ```bash
 git clone https://github.com/YetAnotherMechanicusEnjoyer/Rivet
