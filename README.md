@@ -1,3 +1,4 @@
+<p align="center">
 [![AUR](https://img.shields.io/aur/version/rivetui?logo=arch-linux)](https://aur.archlinux.org/packages/rivetui)
 [![Crates.io](https://img.shields.io/crates/v/rivetui?logo=rust)](https://crates.io/crates/rivetui)
 [![Downloads](https://img.shields.io/crates/d/rivetui?logo=crates-io)](https://crates.io/crates/rivetui)
@@ -6,7 +7,7 @@
 [![AUR Build](https://img.shields.io/github/actions/workflow/status/YetAnotherMechanicusEnjoyer/Rivet/aur.yml?label=AUR)](https://github.com/YetAnotherMechanicusEnjoyer/Rivet/actions/workflows/aur.yml)
 [![Rust CI](https://img.shields.io/github/actions/workflow/status/YetAnotherMechanicusEnjoyer/Rivet/rust.yml?label=Rust)](https://github.com/YetAnotherMechanicusEnjoyer/Rivet/actions/workflows/rust.yml)
 [![Binaries](https://img.shields.io/github/actions/workflow/status/YetAnotherMechanicusEnjoyer/Rivet/bin.yml?label=Binaries)](https://github.com/YetAnotherMechanicusEnjoyer/Rivet/actions/workflows/bin.yml)
-
+</p>
 
 # Rivet
 
