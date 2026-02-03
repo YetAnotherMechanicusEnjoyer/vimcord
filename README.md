@@ -39,8 +39,7 @@ Discord's [Terms of Service (ToS)](https://discord.com/terms) explicitly and str
 The developers, contributors, and maintainers of this repository disclaim all liability and responsibility for any and all consequences that may arise from a user's decision to violate Discord's Terms of Service.
 
 > [!CAUTION]
-> We do not encourage, endorse, or support the use of User Tokens. 😉
->
+> We do not encourage, endorse, or support the use of User Tokens.
 > The user assumes all risk for any account actions, bans, or penalties issued by Discord due to improper use of this software.
 
 ## Installation ([AUR](https://aur.archlinux.org/packages/rivetui))
