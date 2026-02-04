@@ -1,29 +1,29 @@
-# Rivet - Terminal UI Discord client
+# vimcord - Terminal UI Discord client
 
-![Chat Example](./readme/Rivet.png)
+![Chat Example](./readme/example.png)
 
 <p align="center">
-  <a href="https://aur.archlinux.org/packages/rivetui">
-    <img src="https://img.shields.io/aur/version/rivetui?style=for-the-badge&logo=Arch-Linux&logoColor=white&color=1793D1"></a>
-  <a href="https://crates.io/crates/rivetui">
-    <img src="https://img.shields.io/crates/v/rivetui?style=for-the-badge&logo=rust&logoColor=white&color=FF4E00"></a>
-  <a href="https://crates.io/crates/rivetui">
-    <img src="https://img.shields.io/crates/d/rivetui?style=for-the-badge&logo=crates-io&logoColor=white&color=D07300"></a>
-  <a href="https://github.com/YetAnotherMechanicusEnjoyer/Rivet/blob/5392a5b9f8982187b02d11ccd94dcd952fee36b6/LICENSE">
-    <img src="https://img.shields.io/github/license/YetAnotherMechanicusEnjoyer/Rivet?style=for-the-badge&logo=github&color=2EA44F"></a>
+  <a href="https://aur.archlinux.org/packages/vimcord">
+    <img src="https://img.shields.io/aur/version/vimcord?style=for-the-badge&logo=Arch-Linux&logoColor=white&color=1793D1"></a>
+  <a href="https://crates.io/crates/vimcord">
+    <img src="https://img.shields.io/crates/v/vimcord?style=for-the-badge&logo=rust&logoColor=white&color=FF4E00"></a>
+  <a href="https://crates.io/crates/vimcord">
+    <img src="https://img.shields.io/crates/d/vimcord?style=for-the-badge&logo=crates-io&logoColor=white&color=D07300"></a>
+  <a href="https://github.com/YetAnotherMechanicusEnjoyer/vimcord/blob/5392a5b9f8982187b02d11ccd94dcd952fee36b6/LICENSE">
+    <img src="https://img.shields.io/github/license/YetAnotherMechanicusEnjoyer/vimcord?style=for-the-badge&logo=github&color=2EA44F"></a>
 </p>
 <p align="center">
-  <a href="https://github.com/YetAnotherMechanicusEnjoyer/Rivet/actions/workflows/aur.yml">
-    <img src="https://img.shields.io/github/actions/workflow/status/YetAnotherMechanicusEnjoyer/Rivet/aur.yml?style=for-the-badge&logo=github-actions&logoColor=white&color=1793D1&label=AUR"></a>
-  <a href="https://github.com/YetAnotherMechanicusEnjoyer/Rivet/actions/workflows/rust.yml">
-    <img src="https://img.shields.io/github/actions/workflow/status/YetAnotherMechanicusEnjoyer/Rivet/rust.yml?style=for-the-badge&logo=github-actions&logoColor=white&color=FF4E00&label=Rust"></a>
-  <a href="https://github.com/YetAnotherMechanicusEnjoyer/Rivet/actions/workflows/bin.yml">
-    <img src="https://img.shields.io/github/actions/workflow/status/YetAnotherMechanicusEnjoyer/Rivet/bin.yml?style=for-the-badge&logo=github-actions&logoColor=white&color=2088FF&label=Binaries"></a>
+  <a href="https://github.com/YetAnotherMechanicusEnjoyer/vimcord/actions/workflows/aur.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/YetAnotherMechanicusEnjoyer/vimcord/aur.yml?style=for-the-badge&logo=github-actions&logoColor=white&color=1793D1&label=AUR"></a>
+  <a href="https://github.com/YetAnotherMechanicusEnjoyer/vimcord/actions/workflows/rust.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/YetAnotherMechanicusEnjoyer/vimcord/rust.yml?style=for-the-badge&logo=github-actions&logoColor=white&color=FF4E00&label=Rust"></a>
+  <a href="https://github.com/YetAnotherMechanicusEnjoyer/vimcord/actions/workflows/bin.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/YetAnotherMechanicusEnjoyer/vimcord/bin.yml?style=for-the-badge&logo=github-actions&logoColor=white&color=2088FF&label=Binaries"></a>
 </p>
 
 ## About
 
-Rivet is a terminal UI Discord client written in Rust.
+vimcord is a terminal UI Discord client written in Rust.
 
 For best visuals, install  [NerdFonts](https://www.nerdfonts.com/)
 
@@ -40,19 +40,19 @@ The developers, contibutors, and maintainers are not responsible for any consequ
 
 ## Installation
 
-### Arch Linux ([AUR](https://aur.archlinux.org/packages/rivetui))
+### Arch Linux ([AUR](https://aur.archlinux.org/packages/vimcord))
 
 Requires [YaY](https://github.com/Jguer/yay)
 
 ```bash
-yay -S rivetui
+yay -S vimcord
 # or
-yay -S rivetui-git
+yay -S vimcord-git
 ```
 
 ### Binaries
 
-Download prebuilt binaries from: [releases](https://github.com/YetAnotherMechanicusEnjoyer/Rivet/releases/)
+Download prebuilt binaries from: [releases](https://github.com/YetAnotherMechanicusEnjoyer/vimcord/releases/)
 
 ### [Cargo](https://doc.rust-lang.org/cargo/)
 
@@ -60,24 +60,24 @@ Requires [Rust](https://www.rust-lang.org/tools/install)
 
 Make sure that `~/.cargo/bin` is in your PATH env variable.
 
-#### With [crates.io](https://crates.io/crates/rivetui)
+#### With [crates.io](https://crates.io/crates/vimcord)
 
 ```bash
-cargo install rivetui
+cargo install vimcord
 ```
 
 ### From Source
 
 ```bash
-git clone https://github.com/YetAnotherMechanicusEnjoyer/Rivet
-cd Rivet/
+git clone https://github.com/YetAnotherMechanicusEnjoyer/vimcord
+cd vimcord/
 cargo build --release
 ```
 
 Run:
 
 ```bash
-./target/release/rivetui
+./target/release/vimcord
 ```
 
 ## Configuration
@@ -95,22 +95,22 @@ export DISCORD_TOKEN="your-token-here"
 
 ### Inline
 ```bash
-DISCORD_TOKEN="your-token-here" rivetui
+DISCORD_TOKEN="your-token-here" vimcord
 ```
 
 
 ## Usage
 
 ```bash
-rivetui
+vimcord
 ```
 
 or
 
 ```env
-DISCORD_TOKEN="your-token-here" rivetui
+DISCORD_TOKEN="your-token-here" vimcord
 ```
 
 ## Licence
 
-[![MIT](https://img.shields.io/github/license/YetAnotherMechanicusEnjoyer/Rivet?style=for-the-badge&logo=github&color=2EA44F)](https://github.com/YetAnotherMechanicusEnjoyer/Rivet/blob/5392a5b9f8982187b02d11ccd94dcd952fee36b6/LICENSE)
+[![MIT](https://img.shields.io/github/license/YetAnotherMechanicusEnjoyer/vimcord?style=for-the-badge&logo=github&color=2EA44F)](https://github.com/YetAnotherMechanicusEnjoyer/vimcord/blob/5392a5b9f8982187b02d11ccd94dcd952fee36b6/LICENSE)
