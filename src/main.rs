@@ -119,6 +119,7 @@ pub struct App {
     vim_state: Option<VimState>,
     current_user: Option<User>,
     last_message_ids: HashMap<String, String>,
+    discreet_notifs: bool,
 }
 
 async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
@@ -160,6 +161,7 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
         },
         current_user: None,
         last_message_ids: HashMap::new(),
+        discreet_notifs: config.discreet_notifs,
     }));
 
     let (tx_action, mut rx_action) = mpsc::channel::<AppAction>(32);

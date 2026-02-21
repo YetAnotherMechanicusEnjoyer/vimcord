@@ -7,6 +7,8 @@ pub struct Config {
     pub version: u8,
     #[serde(default)]
     pub vim_mode: bool,
+    #[serde(default)]
+    pub discreet_notifs: bool,
     pub emoji_map: Vec<(String, String)>,
 }
 
@@ -25,6 +27,7 @@ impl Default for Config {
         Self {
             version: 1,
             vim_mode: true,
+            discreet_notifs: false,
             emoji_map: Vec::new(),
         }
     }

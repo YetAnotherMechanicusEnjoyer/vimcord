@@ -814,10 +814,13 @@ pub async fn handle_keys_events(
 
                             if !is_self {
                                 let sender = msg.author.username.clone();
-                                let content = msg
-                                    .content
-                                    .clone()
-                                    .unwrap_or_else(|| "Sent an attachment".to_string());
+                                let content = if state.discreet_notifs {
+                                    "Sent you a DM".to_string()
+                                } else {
+                                    msg.content
+                                        .clone()
+                                        .unwrap_or_else(|| "Sent an attachment".to_string())
+                                };
                                 let _ = notify_rust::Notification::new()
                                     .summary(&sender)
                                     .body(&content)
