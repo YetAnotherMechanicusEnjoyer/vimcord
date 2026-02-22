@@ -325,7 +325,7 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
                                 if let Some(new_last_id) = &dm.last_message_id {
                                     // Only fetch messages if we know we have a new message
                                     let should_fetch = match state.last_message_ids.get(&dm.id) {
-                                        Some(tracked_id) => new_last_id > tracked_id,
+                                        Some(tracked_id) => new_last_id.parse::<u64>().unwrap_or_default() > tracked_id.parse::<u64>().unwrap_or_default(),
                                         None => true,
                                     };
 

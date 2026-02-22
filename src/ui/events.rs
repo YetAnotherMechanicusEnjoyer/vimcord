@@ -835,7 +835,10 @@ pub async fn handle_keys_events(
                 }
 
                 // Track the ID of the newest message in this batch (first in array or max ID)
-                if let Some(newest_msg) = new_messages.iter().max_by_key(|m| &m.id) {
+                if let Some(newest_msg) = new_messages
+                    .iter()
+                    .max_by_key(|m| m.id.parse::<u64>().unwrap_or_default())
+                {
                     state
                         .last_message_ids
                         .insert(channel_id, newest_msg.id.clone());
