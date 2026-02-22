@@ -801,7 +801,10 @@ pub async fn handle_keys_events(
                     for msg in &new_messages {
                         let should_notify = match state.last_message_ids.get(&channel_id) {
                             // If we tracked it, check if it's strictly newer
-                            Some(last_id) => &msg.id > last_id,
+                            Some(last_id) => {
+                                msg.id.parse::<u64>().unwrap_or_default()
+                                    > last_id.parse::<u64>().unwrap_or_default()
+                            }
                             // If we haven't tracked it, it's a completely new DM created mid-session!
                             None => true,
                         };
