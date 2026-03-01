@@ -183,6 +183,20 @@ impl ApiClient {
         .await
     }
 
+    pub async fn edit_message(
+        &self,
+        channel_id: &str,
+        message_id: &str,
+        content: Option<String>,
+    ) -> Result<Message, Error> {
+        self.api_request(
+            format!("channels/{channel_id}/messages/{message_id}").as_str(),
+            Method::PATCH,
+            Some(serde_json::json!({ "content": content})),
+        )
+        .await
+    }
+
     pub async fn delete_message(&self, channel_id: &str, message_id: &str) -> Result<(), Error> {
         self.api_request_no_content(
             format!("channels/{channel_id}/messages/{message_id}").as_str(),
