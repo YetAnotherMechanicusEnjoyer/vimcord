@@ -62,6 +62,7 @@ pub enum AppState {
     SelectingChannel(String),
     Chatting(String),
     EmojiSelection(String),
+    Editing(String, Message, String),
     Loading(Window),
 }
 
@@ -74,6 +75,8 @@ pub enum AppAction {
     InputSubmit,
     SelectNext,
     SelectPrevious,
+    ApiDeleteMessage(String, String),
+    ApiEditMessage(String, String, String),
     ApiUpdateMessages(Vec<Message>),
     ApiUpdateChannel(Vec<Channel>),
     ApiUpdateEmojis(Vec<Emoji>),
@@ -83,6 +86,7 @@ pub enum AppAction {
     ApiUpdateCurrentUser(User),
     ApiUpdateUnreadMessages(String, Vec<Message>),
     TransitionToChat(String),
+    TransitionToEditing(String, Message, String),
     TransitionToChannels(String),
     TransitionToGuilds,
     TransitionToDM,
@@ -91,7 +95,6 @@ pub enum AppAction {
     EndLoading,
     SelectEmoji,
     Paste(String),
-    ApiDeleteMessage(String, String),
     Tick,
 }
 
@@ -111,6 +114,7 @@ pub struct App {
     custom_emojis: Vec<Emoji>,
     dms: Vec<DM>,
     input: String,
+    saved_input: Option<String>,
     selection_index: usize,
     status_message: String,
     terminal_height: usize,
@@ -150,6 +154,7 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
         custom_emojis: Vec::new(),
         dms: Vec::new(),
         input: String::new(),
+        saved_input: None,
         selection_index: 0,
         status_message:
             "Browse either DMs or Servers. Use arrows to navigate, Enter to select & Esc to quit"

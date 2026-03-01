@@ -8,7 +8,7 @@ use tokio::{
 
 use crate::{
     App, AppAction, AppState, InputMode, KeywordAction, Window,
-    api::{Channel, DM, Emoji, Guild},
+    api::{Channel, DM, Emoji, Guild, Message},
     logs::{LogType, print_log},
     ui::vim,
 };
@@ -375,6 +375,53 @@ async fn input_submit(
                 "Chatting in channel. Press Enter to send message, Esc to return to channels."
                     .to_string();
         }
+        AppState::Editing(channel_id, message, _) => {
+            let (channel_id_clone, message_id_clone) = (channel_id.clone(), message.id.clone());
+            let content = state.input.drain(..).collect::<String>();
+
+            let message_data = if content.is_empty() {
+                None
+            } else {
+                Some((channel_id_clone, content))
+            };
+
+            let tx_action_clone = tx_action.clone();
+
+            if let Some((channel_id_clone, content)) = message_data {
+                let api_client_clone = state.api_client.clone();
+                let msgs = state.messages.clone();
+
+                tokio::spawn(async move {
+                    match api_client_clone
+                        .edit_message(&channel_id_clone, &message_id_clone, Some(content))
+                        .await
+                    {
+                        Ok(msg) => {
+                            let _ = tx_action_clone
+                                .send(AppAction::ApiUpdateMessages(
+                                    msgs.iter()
+                                        .map(|m| {
+                                            if m.id == msg.id {
+                                                msg.clone()
+                                            } else {
+                                                m.clone()
+                                            }
+                                        })
+                                        .collect::<Vec<Message>>(),
+                                ))
+                                .await;
+                            let _ = tx_action_clone
+                                .send(AppAction::TransitionToChat(channel_id_clone))
+                                .await
+                                .ok();
+                        }
+                        Err(e) => {
+                            let _ = print_log(format!("API Error: {e}").into(), LogType::Error);
+                        }
+                    }
+                });
+            }
+        }
         AppState::Chatting(_) => {
             let channel_id_clone = if let AppState::Chatting(id) = &state.state {
                 Some(id.clone())
@@ -557,7 +604,13 @@ pub async fn handle_keys_events(
             // In non-vim mode (or vim Normal mode), Esc triggers navigation (handled below).
             if state.vim_mode && state.mode == InputMode::Insert {
                 state.mode = InputMode::Normal;
-                if let Some(c) = state.input[..state.cursor_position].chars().next_back()
+                let pos = if state.cursor_position <= state.input.len() && state.cursor_position > 0
+                {
+                    state.cursor_position
+                } else {
+                    state.input.len()
+                };
+                if let Some(c) = state.input[..pos].chars().next_back()
                     && c != '\n'
                 {
                     state.cursor_position -= c.len_utf8();
@@ -607,6 +660,12 @@ pub async fn handle_keys_events(
                         .await
                         .ok();
                 }
+                AppState::Editing(channel_id, _, _) => {
+                    tx_action
+                        .send(AppAction::TransitionToChat(channel_id.clone()))
+                        .await
+                        .ok();
+                }
             }
         }
         AppAction::Paste(text) => {
@@ -638,7 +697,9 @@ pub async fn handle_keys_events(
             }
         }
         AppAction::SelectEmoji => {
-            if let AppState::Chatting(channel_id) = &mut state.clone().state {
+            if let AppState::Chatting(channel_id) | AppState::Editing(channel_id, _, _) =
+                &mut state.clone().state
+            {
                 let cursor_pos = std::cmp::min(state.cursor_position, state.input.len());
                 let is_start_of_emoji = cursor_pos == 0 || state.input[..cursor_pos].ends_with(' ');
 
@@ -716,7 +777,13 @@ pub async fn handle_keys_events(
                     }
                 }
                 _ => {
-                    let pos = state.cursor_position;
+                    let pos = if state.cursor_position <= state.input.len()
+                        && state.cursor_position > 0
+                    {
+                        state.cursor_position
+                    } else {
+                        state.input.len()
+                    };
                     if let Some(c) = state.input[..pos].chars().next_back() {
                         let char_len = c.len_utf8();
                         state.input.remove(pos - char_len);
@@ -885,8 +952,13 @@ pub async fn handle_keys_events(
                 state.emoji_filter_start = None;
                 state.selection_index = 0;
             }
+            if let AppState::Editing(_, _, _) = &state.state {
+                state.input = state.saved_input.clone().unwrap_or_default();
+                state.saved_input = None;
+            }
             state.state = AppState::Chatting(channel_id.clone());
             state.chat_scroll_offset = 0;
+            state.cursor_position = 0;
             state.selection_index = 0;
             state.status_message =
                 "Chatting in channel. Press Enter to send message, Esc to return to channels."
@@ -934,6 +1006,39 @@ pub async fn handle_keys_events(
             if state.selection_index > state.messages.len() {
                 state.selection_index = state.messages.len();
             }
+        }
+        AppAction::ApiEditMessage(channel_id, message_id, content) => {
+            let (api_client_clone, channel_id_clone, message_id_clone, content_clone) = (
+                state.api_client.clone(),
+                channel_id.clone(),
+                message_id.clone(),
+                content.clone(),
+            );
+
+            tokio::spawn(async move {
+                if let Err(e) = api_client_clone
+                    .edit_message(&channel_id_clone, &message_id_clone, Some(content_clone))
+                    .await
+                {
+                    let _ = print_log(
+                        format!("API Error editing message: {e}").into(),
+                        LogType::Error,
+                    );
+                }
+            });
+        }
+        AppAction::TransitionToEditing(channel_id, message, content) => {
+            let (channel_id_clone, message_clone, content_clone) =
+                (channel_id.clone(), message.clone(), content.clone());
+
+            state.saved_input = Some(state.input.clone());
+            state.input = content.clone();
+            state.cursor_position = content.len();
+            state.selection_index = 0;
+            state.state = AppState::Editing(channel_id_clone, message_clone, content_clone);
+            state.status_message =
+                "Editing a message in channel. Press Enter to send message. Esc to return to channels"
+                    .to_string();
         }
         AppAction::TransitionToHome => {
             state.input = String::new();

@@ -320,7 +320,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
             f.render_widget(Clear, chunks[0]);
             f.render_stateful_widget(list, chunks[0], &mut state);
         }
-        AppState::Chatting(_) | AppState::EmojiSelection(_) => {
+        AppState::Chatting(_) | AppState::EmojiSelection(_) | AppState::Editing(_, _, _) => {
             if max_width == 0 {
                 return;
             }
@@ -589,7 +589,12 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
     );
 
     if app.selection_index == 0 {
-        let input_before_cursor = &app.input[..app.cursor_position];
+        let cursor = if app.cursor_position <= app.input.len() && app.cursor_position > 0 {
+            app.cursor_position
+        } else {
+            0
+        };
+        let input_before_cursor = &app.input[..cursor];
         let cursor_lines = input_before_cursor.split('\n').count();
         let cursor_y = chunks[1].y + cursor_lines as u16;
 
