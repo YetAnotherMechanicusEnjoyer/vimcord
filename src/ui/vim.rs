@@ -559,6 +559,24 @@ pub async fn handle_vim_keys(
                 vim_state.last_action_time = Instant::now();
             }
         }
+        'r' => {
+            if let AppState::Chatting(channel_id) = &state.state
+                && state.selection_index > 0
+            {
+                let msg_index_in_slice = state.selection_index.saturating_sub(1);
+
+                if let Some(msg) = state.messages.get(msg_index_in_slice) {
+                    tx_action
+                        .send(AppAction::TransitionToEditing(
+                            channel_id.clone(),
+                            msg.clone(),
+                            msg.content.clone().unwrap_or_default(),
+                        ))
+                        .await
+                        .ok();
+                }
+            }
+        }
         'x' => {
             if let AppState::Chatting(_) = &state.state
                 && state.selection_index > 0
