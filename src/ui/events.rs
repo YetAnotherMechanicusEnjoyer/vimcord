@@ -1036,6 +1036,10 @@ pub async fn handle_keys_events(
 
             if state.vim_mode {
                 state.mode = InputMode::Insert;
+                if let Some(vim_state) = &mut state.vim_state {
+                    vim_state.operator = None;
+                    vim_state.pending_keys.clear();
+                }
             }
 
             state.cursor_position = match c {
