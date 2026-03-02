@@ -24,22 +24,26 @@ The following features are grouped by **Importance** (Foundation, Critical, High
 
 ### 1. Critical Importance (Core Usability)
 *These are essential features that users expect from any functioning chat client. Without these, the client feels incomplete.*
-1. <small>~~**Message Deletion** *(Difficulty: Easy)*~~</small>
-   - <small>~~**Description**: Ability for the user to delete their own messages.~~</small>
-   - <small>~~**Implementation**: Adding a keybinding in the UI to call `DELETE /channels/{channel.id}/messages/{message.id}`.~~</small>
+1. <details>
+     <summary><sub><s><strong>Message Deletion</strong> <em>(Difficulty: Easy)</em></s></sub></summary>
+     <strong>Description</strong>: Ability for the user to delete their own messages.<br/>
+     <strong>Implementation</strong>: Add a keybinding in the UI to call <code>DELETE /channels/{channel.id}/messages/{message.id}</code>.
+    </details>
 2. **Mark as Read / Read Receipts** *(Difficulty: Easy)*
    - **Description**: Updating the local and remote "last read" state to clear unread notification badges.
    - **Implementation**: Hitting the `/ack` endpoint for channels when viewed.
 3. **Proper Push Notifications** *(Difficulty: Medium) (🔒 Blocked by WebSockets)*
    - **Description**: Replace the current hacky workaround for notifications with reliable, instant desktop push notifications for new messages.
    - **Implementation**: Listen for `MESSAGE_CREATE` events in real-time over the WebSocket Gateway to trigger native notifications correctly without missing any or double-notifying.
-4. **Message Editing** *(Difficulty: Medium)*
-   - **Description**: Ability to edit existing sent messages.
-   - **Implementation**: Needs a UI mode to load old text into the input buffer and a `PATCH /channels/{channel.id}/messages/{message.id}` request.
-5. **Message Replies** *(Difficulty: Medium)*
+4. <details>
+     <summary><sub><s><strong>Message Editing</strong> <em>(Difficulty: Medium)</em></s></sub></summary>
+     <strong>Description</strong>: Ability to edit existing sent messages.<br/>
+     <strong>Implementation</strong>: Needs a UI mode to load old text into the input buffer and a `PATCH /channels/{channel.id}/messages/{message.id}` request.
+   </details>
+6. **Message Replies** *(Difficulty: Medium)*
    - **Description**: In-line replying to specific messages.
    - **Implementation**: UI interaction to select a message, and adding `message_reference` to the message creation API payload.
-6. **Mentions & Pings** *(Difficulty: Medium)*
+7. **Mentions & Pings** *(Difficulty: Medium)*
    - **Description**: Highlighting mentions natively (`@username`), alerting the user, and providing autocomplete for users in the input bar.
    - **Implementation**: Parsing `<@id>` tags in text rendering and querying guild members for autocomplete.
 
