@@ -1027,13 +1027,23 @@ pub async fn handle_keys_events(
                 }
             });
         }
-        AppAction::TransitionToEditing(channel_id, message, content) => {
+        AppAction::TransitionToEditing(channel_id, message, content, c) => {
             let (channel_id_clone, message_clone, content_clone) =
                 (channel_id.clone(), message.clone(), content.clone());
 
             state.saved_input = Some(state.input.clone());
             state.input = content.clone();
-            state.cursor_position = content.len();
+
+            if state.vim_mode {
+                state.mode = InputMode::Insert;
+            }
+
+            state.cursor_position = match c {
+                'i' | 'I' => 0,
+                'a' => content.chars().next().map(|ch| ch.len_utf8()).unwrap_or(0),
+                _ => content.len(),
+            };
+
             state.selection_index = 0;
             state.state = AppState::Editing(channel_id_clone, message_clone, content_clone);
             state.status_message =

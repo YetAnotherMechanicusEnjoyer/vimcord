@@ -245,21 +245,35 @@ pub async fn handle_vim_keys(
     // or when mutating state later.
     let current_operator = state.vim_state.as_ref().unwrap().operator;
 
+    if let AppState::Chatting(channel_id) = &state.state {
+        if state.selection_index > 0 && ['i', 'I', 'a', 'A'].contains(&c) {
+            let msg_index_in_slice = state.selection_index.saturating_sub(1);
+
+            if let Some(msg) = state.messages.get(msg_index_in_slice)
+                && state
+                    .current_user
+                    .as_ref()
+                    .is_some_and(|user| user.id == msg.author.id)
+            {
+                tx_action
+                    .send(AppAction::TransitionToEditing(
+                        channel_id.clone(),
+                        msg.clone(),
+                        msg.content.clone().unwrap_or_default(),
+                        c,
+                    ))
+                    .await
+                    .ok();
+            }
+            return;
+        }
+    }
+
     match c {
         'i' => {
-            if let AppState::Chatting(_) = &state.state
-                && state.selection_index > 0
-            {
-                return;
-            }
             state.mode = InputMode::Insert;
         }
         'I' => {
-            if let AppState::Chatting(_) = &state.state
-                && state.selection_index > 0
-            {
-                return;
-            }
             let start_of_line = state.input[..state.cursor_position]
                 .rfind('\n')
                 .map(|i| i + 1)
@@ -268,22 +282,12 @@ pub async fn handle_vim_keys(
             state.mode = InputMode::Insert;
         }
         'a' => {
-            if let AppState::Chatting(_) = &state.state
-                && state.selection_index > 0
-            {
-                return;
-            }
             if let Some(c) = state.input[state.cursor_position..].chars().next() {
                 state.cursor_position += c.len_utf8();
             }
             state.mode = InputMode::Insert;
         }
         'A' => {
-            if let AppState::Chatting(_) = &state.state
-                && state.selection_index > 0
-            {
-                return;
-            }
             let end_of_line = state.input[state.cursor_position..]
                 .find('\n')
                 .map(|i| state.cursor_position + i)
@@ -559,29 +563,7 @@ pub async fn handle_vim_keys(
                 vim_state.last_action_time = Instant::now();
             }
         }
-        'r' => {
-            if let AppState::Chatting(channel_id) = &state.state
-                && state.selection_index > 0
-            {
-                let msg_index_in_slice = state.selection_index.saturating_sub(1);
 
-                if let Some(msg) = state.messages.get(msg_index_in_slice)
-                    && state
-                        .current_user
-                        .as_ref()
-                        .is_some_and(|user| user.id == msg.author.id)
-                {
-                    tx_action
-                        .send(AppAction::TransitionToEditing(
-                            channel_id.clone(),
-                            msg.clone(),
-                            msg.content.clone().unwrap_or_default(),
-                        ))
-                        .await
-                        .ok();
-                }
-            }
-        }
         'x' => {
             if let AppState::Chatting(_) = &state.state
                 && state.selection_index > 0

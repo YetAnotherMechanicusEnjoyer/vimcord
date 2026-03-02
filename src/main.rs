@@ -86,7 +86,7 @@ pub enum AppAction {
     ApiUpdateCurrentUser(User),
     ApiUpdateUnreadMessages(String, Vec<Message>),
     TransitionToChat(String),
-    TransitionToEditing(String, Message, String),
+    TransitionToEditing(String, Message, String, char),
     TransitionToChannels(String),
     TransitionToGuilds,
     TransitionToDM,
