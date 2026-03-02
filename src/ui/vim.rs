@@ -565,7 +565,12 @@ pub async fn handle_vim_keys(
             {
                 let msg_index_in_slice = state.selection_index.saturating_sub(1);
 
-                if let Some(msg) = state.messages.get(msg_index_in_slice) {
+                if let Some(msg) = state.messages.get(msg_index_in_slice)
+                    && state
+                        .current_user
+                        .as_ref()
+                        .is_some_and(|user| user.id == msg.author.id)
+                {
                     tx_action
                         .send(AppAction::TransitionToEditing(
                             channel_id.clone(),
