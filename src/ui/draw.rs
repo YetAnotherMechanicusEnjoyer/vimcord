@@ -7,7 +7,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::{
     App, AppState,
-    api::{Channel, DM, Emoji, Guild, Message},
+    api::{Channel, DM, Emoji, Guild},
 };
 
 pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
@@ -68,7 +68,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                 .block(
                     Block::default()
                         .title(Span::styled(
-                            "Rivet Client - Home",
+                            "vimcord Client - Home",
                             Style::default().fg(Color::Yellow),
                         ))
                         .borders(Borders::ALL)
@@ -119,7 +119,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                 .block(
                     Block::default()
                         .title(Span::styled(
-                            "Rivet Client - Direct Messages",
+                            "vimcord Client - Direct Messages",
                             Style::default().fg(Color::Yellow),
                         ))
                         .borders(Borders::ALL)
@@ -164,7 +164,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                 .block(
                     Block::default()
                         .title(Span::styled(
-                            "Rivet Client - Guilds",
+                            "vimcord Client - Guilds",
                             Style::default().fg(Color::Yellow),
                         ))
                         .borders(Borders::ALL)
@@ -320,15 +320,22 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
             f.render_widget(Clear, chunks[0]);
             f.render_stateful_widget(list, chunks[0], &mut state);
         }
-        AppState::Chatting(_) | AppState::EmojiSelection(_) => {
+        AppState::Chatting(_) | AppState::EmojiSelection(_) | AppState::Editing(_, _, _) => {
             if max_width == 0 {
                 return;
             }
 
-            let mut messages_to_render: Vec<Message> = Vec::new();
-            let mut current_height = 0;
+            let mut messages_reversed_with_index =
+                app.messages.iter().enumerate().collect::<Vec<_>>();
+            messages_reversed_with_index.reverse(); // Oldest first
 
-            for message in app.messages.iter() {
+            let mut final_content: Vec<Line> = Vec::new();
+            let mut total_visual_height = 0;
+
+            for (original_idx, message) in messages_reversed_with_index.into_iter() {
+                let is_selected =
+                    app.selection_index > 0 && app.selection_index - 1 == original_idx;
+
                 let formatted_text = format!(
                     "[{}] {}: {}",
                     message
@@ -395,19 +402,18 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                     }
                 }
 
-                messages_to_render.push(message.clone());
-                current_height += estimated_height;
+                let start_y = total_visual_height;
+                total_visual_height += estimated_height;
+                let end_y = total_visual_height;
 
-                if current_height >= max_height {
-                    break;
+                if is_selected {
+                    if start_y < app.chat_scroll_offset {
+                        app.chat_scroll_offset = start_y;
+                    } else if end_y > app.chat_scroll_offset + max_height {
+                        app.chat_scroll_offset = end_y.saturating_sub(max_height);
+                    }
                 }
-            }
 
-            messages_to_render.reverse();
-
-            let mut final_content: Vec<Line> = Vec::new();
-
-            for message in messages_to_render.into_iter() {
                 let formatted_time = format!(
                     " {}]",
                     message
@@ -436,54 +442,61 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
 
                 let content_lines: Vec<&str> = content.split('\n').collect();
 
+                let bg_color = if is_selected {
+                    Color::DarkGray
+                } else {
+                    Color::Reset
+                };
+
                 for (i, line_content) in content_lines.iter().enumerate() {
                     let mut spans = vec![];
 
                     if i == 0 {
                         spans.push(Span::styled(
                             "[".to_string(),
-                            Style::default().fg(Color::LightBlue),
+                            Style::default().fg(Color::LightBlue).bg(bg_color),
                         ));
                         spans.push(Span::styled(
                             formatted_date.clone(),
-                            Style::default().fg(Color::LightCyan),
+                            Style::default().fg(Color::LightCyan).bg(bg_color),
                         ));
                         spans.push(Span::styled(
                             formatted_time.clone(),
-                            Style::default().fg(Color::LightBlue),
+                            Style::default().fg(Color::LightBlue).bg(bg_color),
                         ));
                         spans.push(Span::styled(
                             author.clone(),
-                            Style::default().fg(Color::Yellow),
+                            Style::default().fg(Color::Yellow).bg(bg_color),
                         ));
+                    } else {
+                        // Keep multi-line messages highlighted properly across all lines
+                        spans.push(Span::styled("".to_string(), Style::default().bg(bg_color)));
                     }
 
                     spans.push(Span::styled(
                         line_content.to_string(),
-                        Style::default().fg(Color::White),
+                        Style::default().fg(Color::White).bg(bg_color),
                     ));
                     final_content.push(Line::from(spans));
                 }
             }
 
-            let scroll_offset = if current_height > max_height {
-                current_height.saturating_sub(max_height)
-            } else {
-                0
-            };
+            if app.selection_index == 0 {
+                app.chat_scroll_offset = total_visual_height.saturating_sub(max_height);
+            }
 
             let paragraph = Paragraph::new(final_content)
                 .block(
                     Block::default()
                         .title(Span::styled(
-                            "Rivet Client - Chatting",
+                            "vimcord Client - Chatting",
                             Style::default().fg(Color::Yellow),
                         ))
                         .borders(Borders::ALL)
                         .border_type(BorderType::Double),
                 )
                 .wrap(Wrap { trim: false })
-                .scroll((scroll_offset as u16, 0));
+                .scroll((app.chat_scroll_offset as u16, 0));
 
             f.render_widget(Clear, chunks[0]);
             f.render_widget(paragraph, chunks[0]);
@@ -575,13 +588,21 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
         chunks[1],
     );
 
-    let input_before_cursor = &app.input[..app.cursor_position];
-    let cursor_lines = input_before_cursor.split('\n').count();
-    let cursor_y = chunks[1].y + cursor_lines as u16;
+    if app.selection_index == 0 {
+        let cursor = if app.cursor_position <= app.input.len() && app.cursor_position > 0 {
+            app.cursor_position
+        } else {
+            0
+        };
+        let input_before_cursor = &app.input[..cursor];
+        let cursor_lines = input_before_cursor.split('\n').count();
+        let cursor_y = chunks[1].y + cursor_lines as u16;
 
-    let current_line_start = input_before_cursor.rfind('\n').map(|i| i + 1).unwrap_or(0);
-    let cursor_x =
-        chunks[1].x + 1 + UnicodeWidthStr::width(&input_before_cursor[current_line_start..]) as u16;
+        let current_line_start = input_before_cursor.rfind('\n').map(|i| i + 1).unwrap_or(0);
+        let cursor_x = chunks[1].x
+            + 1
+            + UnicodeWidthStr::width(&input_before_cursor[current_line_start..]) as u16;
 
-    f.set_cursor_position((cursor_x, cursor_y));
+        f.set_cursor_position((cursor_x, cursor_y));
+    }
 }

@@ -111,6 +111,12 @@ or
 DISCORD_TOKEN="your-token-here" vimcord
 ```
 
+## Roadmap & Missing Features
+
+While `vimcord` is fully functional for basic chat and navigation, there are many exciting features on our radar! 
+
+To see our future plans, feature backlog, and what still needs to be implemented (such as mentions, threaded conversations, and reactions), please take a look at our [Roadmap & Feature Backlog](readme/todo.md). We have carefully detailed and categorized upcoming features by priority and difficulty to help guide development and encourage community contributions. We'd love your help in making this the best terminal Discord client possible!
+
 ## Licence
 
 [![MIT](https://img.shields.io/github/license/YetAnotherMechanicusEnjoyer/vimcord?style=for-the-badge&logo=github&color=2EA44F)](https://github.com/YetAnotherMechanicusEnjoyer/vimcord/blob/5392a5b9f8982187b02d11ccd94dcd952fee36b6/LICENSE)

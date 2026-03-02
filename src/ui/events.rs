@@ -8,7 +8,8 @@ use tokio::{
 
 use crate::{
     App, AppAction, AppState, InputMode, KeywordAction, Window,
-    api::{Channel, DM, Emoji, Guild},
+    api::{Channel, DM, Emoji, Guild, Message},
+    logs::{LogType, print_log},
     ui::vim,
 };
 
@@ -207,7 +208,10 @@ async fn input_submit(
                             .ok();
                     }
                     Err(e) => {
-                        eprintln!("Failed to load channels: {e}");
+                        let _ = print_log(
+                            format!("Failed to load channels: {e}").into(),
+                            LogType::Error,
+                        );
                     }
                 }
                 match api_client_clone.get_guild_emojis(&guild_id_clone).await {
@@ -215,7 +219,10 @@ async fn input_submit(
                         tx_clone.send(AppAction::ApiUpdateEmojis(emojis)).await.ok();
                     }
                     Err(e) => {
-                        eprintln!("Failed to load custom emojis: {e}");
+                        let _ = print_log(
+                            format!("Failed to load custom emojis: {e}").into(),
+                            LogType::Error,
+                        );
                     }
                 }
                 match api_client_clone
@@ -229,7 +236,10 @@ async fn input_submit(
                             .ok();
                     }
                     Err(e) => {
-                        eprintln!("Failed to load permission context: {e}");
+                        let _ = print_log(
+                            format!("Failed to load permission context: {e}").into(),
+                            LogType::Error,
+                        );
                     }
                 }
 
@@ -303,7 +313,10 @@ async fn input_submit(
             {
                 Ok(messages) => {
                     if let Err(e) = tx_action.send(AppAction::ApiUpdateMessages(messages)).await {
-                        eprintln!("Failed to send message update action: {e}");
+                        let _ = print_log(
+                            format!("Failed to send message update action: {e}").into(),
+                            LogType::Error,
+                        );
                         return None;
                     }
                 }
@@ -368,6 +381,53 @@ async fn input_submit(
                 "Chatting in channel. Press Enter to send message, Esc to return to channels."
                     .to_string();
         }
+        AppState::Editing(channel_id, message, _) => {
+            let (channel_id_clone, message_id_clone) = (channel_id.clone(), message.id.clone());
+            let content = state.input.drain(..).collect::<String>();
+
+            let message_data = if content.is_empty() {
+                None
+            } else {
+                Some((channel_id_clone, content))
+            };
+
+            let tx_action_clone = tx_action.clone();
+
+            if let Some((channel_id_clone, content)) = message_data {
+                let api_client_clone = state.api_client.clone();
+                let msgs = state.messages.clone();
+
+                tokio::spawn(async move {
+                    match api_client_clone
+                        .edit_message(&channel_id_clone, &message_id_clone, Some(content))
+                        .await
+                    {
+                        Ok(msg) => {
+                            let _ = tx_action_clone
+                                .send(AppAction::ApiUpdateMessages(
+                                    msgs.iter()
+                                        .map(|m| {
+                                            if m.id == msg.id {
+                                                msg.clone()
+                                            } else {
+                                                m.clone()
+                                            }
+                                        })
+                                        .collect::<Vec<Message>>(),
+                                ))
+                                .await;
+                            let _ = tx_action_clone
+                                .send(AppAction::TransitionToChat(channel_id_clone))
+                                .await
+                                .ok();
+                        }
+                        Err(e) => {
+                            let _ = print_log(format!("API Error: {e}").into(), LogType::Error);
+                        }
+                    }
+                });
+            }
+        }
         AppState::Chatting(_) => {
             let channel_id_clone = if let AppState::Chatting(id) = &state.state {
                 Some(id.clone())
@@ -394,7 +454,7 @@ async fn input_submit(
                     {
                         Ok(_) => {}
                         Err(e) => {
-                            eprintln!("API Error: {e}");
+                            let _ = print_log(format!("API Error: {e}").into(), LogType::Error);
                         }
                     }
                 });
@@ -550,10 +610,16 @@ pub async fn handle_keys_events(
             // In non-vim mode (or vim Normal mode), Esc triggers navigation (handled below).
             if state.vim_mode && state.mode == InputMode::Insert {
                 state.mode = InputMode::Normal;
-                if let Some(c) = state.input[..state.cursor_position].chars().next_back()
+                let pos = if state.cursor_position <= state.input.len() && state.cursor_position > 0
+                {
+                    state.cursor_position
+                } else {
+                    state.input.len()
+                };
+                if let Some(c) = state.input[..pos].chars().next_back()
                     && c != '\n'
                 {
-                    state.cursor_position -= c.len_utf8();
+                    state.cursor_position = state.cursor_position.saturating_sub(c.len_utf8());
                 }
                 if !(state.cursor_position == state.input.len() && state.input.ends_with('\n')) {
                     vim::clamp_cursor(&mut state);
@@ -600,6 +666,12 @@ pub async fn handle_keys_events(
                         .await
                         .ok();
                 }
+                AppState::Editing(channel_id, _, _) => {
+                    tx_action
+                        .send(AppAction::TransitionToChat(channel_id.clone()))
+                        .await
+                        .ok();
+                }
             }
         }
         AppAction::Paste(text) => {
@@ -631,7 +703,9 @@ pub async fn handle_keys_events(
             }
         }
         AppAction::SelectEmoji => {
-            if let AppState::Chatting(channel_id) = &mut state.clone().state {
+            if let AppState::Chatting(channel_id) | AppState::Editing(channel_id, _, _) =
+                &mut state.clone().state
+            {
                 let cursor_pos = std::cmp::min(state.cursor_position, state.input.len());
                 let is_start_of_emoji = cursor_pos == 0 || state.input[..cursor_pos].ends_with(' ');
 
@@ -709,7 +783,13 @@ pub async fn handle_keys_events(
                     }
                 }
                 _ => {
-                    let pos = state.cursor_position;
+                    let pos = if state.cursor_position <= state.input.len()
+                        && state.cursor_position > 0
+                    {
+                        state.cursor_position
+                    } else {
+                        state.input.len()
+                    };
                     if let Some(c) = state.input[..pos].chars().next_back() {
                         let char_len = c.len_utf8();
                         state.input.remove(pos - char_len);
@@ -737,7 +817,23 @@ pub async fn handle_keys_events(
             vim::handle_vim_keys(state, 'l', tx_action).await;
         }
         AppAction::ApiUpdateMessages(new_messages) => {
-            state.messages = new_messages;
+            let active_channel_id = if let AppState::Chatting(id) = &state.state {
+                Some(id.clone())
+            } else {
+                None
+            };
+
+            if let Some(channel_id) = active_channel_id
+                && let Some(newest_msg) = new_messages.iter().max_by_key(|m| &m.id)
+            {
+                state
+                    .last_message_ids
+                    .insert(channel_id, newest_msg.id.clone());
+            }
+            state.messages = new_messages
+                .into_iter()
+                .filter(|m| !state.deleted_message_ids.contains(&m.id))
+                .collect();
         }
         AppAction::ApiUpdateGuilds(new_guilds) => {
             state.guilds = new_guilds.clone();
@@ -762,7 +858,17 @@ pub async fn handle_keys_events(
             state.custom_emojis = new_emojis;
         }
         AppAction::ApiUpdateDMs(new_dms) => {
-            state.dms = new_dms;
+            state.dms = new_dms.clone();
+
+            // Initialize last_message_ids for all DMs on load
+            for dm in new_dms {
+                if let Some(msg_id) = dm.last_message_id {
+                    // Only insert if it doesn't already exist so we don't accidentally
+                    // overwrite during a mid-session refresh
+                    state.last_message_ids.entry(dm.id).or_insert(msg_id);
+                }
+            }
+
             let dms_count = state.dms.len();
             if dms_count > 0 {
                 state.status_message =
@@ -774,6 +880,65 @@ pub async fn handle_keys_events(
         }
         AppAction::ApiUpdateContext(new_context) => {
             state.context = new_context;
+        }
+        AppAction::ApiUpdateCurrentUser(user) => {
+            state.current_user = Some(user);
+        }
+        AppAction::ApiUpdateUnreadMessages(channel_id, new_messages) => {
+            let is_active_channel = match &state.state {
+                AppState::Chatting(active_id) => active_id == &channel_id,
+                _ => false,
+            };
+
+            if !new_messages.is_empty() {
+                // Only notify if we are not actively viewing this channel
+                if !is_active_channel {
+                    for msg in &new_messages {
+                        let should_notify = match state.last_message_ids.get(&channel_id) {
+                            // If we tracked it, check if it's strictly newer
+                            Some(last_id) => {
+                                msg.id.parse::<u64>().unwrap_or_default()
+                                    > last_id.parse::<u64>().unwrap_or_default()
+                            }
+                            // If we haven't tracked it, it's a completely new DM created mid-session!
+                            None => true,
+                        };
+
+                        if should_notify {
+                            let is_self = state
+                                .current_user
+                                .as_ref()
+                                .is_some_and(|u| u.id == msg.author.id);
+
+                            if !is_self {
+                                let sender = msg.author.username.clone();
+                                let content = if state.discreet_notifs {
+                                    "Sent you a DM".to_string()
+                                } else {
+                                    msg.content
+                                        .clone()
+                                        .unwrap_or_else(|| "Sent an attachment".to_string())
+                                };
+                                let _ = notify_rust::Notification::new()
+                                    .summary(&sender)
+                                    .body(&content)
+                                    .appname("vimcord")
+                                    .show();
+                            }
+                        }
+                    }
+                }
+
+                // Track the ID of the newest message in this batch (first in array or max ID)
+                if let Some(newest_msg) = new_messages
+                    .iter()
+                    .max_by_key(|m| m.id.parse::<u64>().unwrap_or_default())
+                {
+                    state
+                        .last_message_ids
+                        .insert(channel_id, newest_msg.id.clone());
+                }
+            }
         }
         AppAction::TransitionToChannels(guild_id) => {
             state.input = String::new();
@@ -799,7 +964,14 @@ pub async fn handle_keys_events(
                 state.emoji_filter_start = None;
                 state.selection_index = 0;
             }
+            if let AppState::Editing(_, _, _) = &state.state {
+                state.input = state.saved_input.clone().unwrap_or_default();
+                state.saved_input = None;
+            }
             state.state = AppState::Chatting(channel_id.clone());
+            state.chat_scroll_offset = 0;
+            state.cursor_position = 0;
+            state.selection_index = 0;
             state.status_message =
                 "Chatting in channel. Press Enter to send message, Esc to return to channels."
                     .to_string();
@@ -820,6 +992,65 @@ pub async fn handle_keys_events(
             state.status_message =
                 "Select a DM. Use arrows to navigate, Enter to select & Esc to quit".to_string();
             state.selection_index = 0;
+        }
+        AppAction::ApiDeleteMessage(channel_id, message_id) => {
+            let api_client_clone = state.api_client.clone();
+            let channel_id_clone = channel_id.clone();
+            let message_id_clone = message_id.clone();
+
+            tokio::spawn(async move {
+                if let Err(e) = api_client_clone
+                    .delete_message(&channel_id_clone, &message_id_clone)
+                    .await
+                {
+                    let _ = print_log(
+                        format!("API Error deleting message: {e}").into(),
+                        LogType::Error,
+                    );
+                }
+            });
+
+            // Optimistically remove the message from the local view and track it
+            state.deleted_message_ids.insert(message_id.clone());
+            state.messages.retain(|m| m.id != message_id);
+
+            // Re-clamp selection index if the list shrank
+            if state.selection_index > state.messages.len() {
+                state.selection_index = state.messages.len();
+            }
+        }
+        AppAction::ApiEditMessage(channel_id, message_id, content) => {
+            let (api_client_clone, channel_id_clone, message_id_clone, content_clone) = (
+                state.api_client.clone(),
+                channel_id.clone(),
+                message_id.clone(),
+                content.clone(),
+            );
+
+            tokio::spawn(async move {
+                if let Err(e) = api_client_clone
+                    .edit_message(&channel_id_clone, &message_id_clone, Some(content_clone))
+                    .await
+                {
+                    let _ = print_log(
+                        format!("API Error editing message: {e}").into(),
+                        LogType::Error,
+                    );
+                }
+            });
+        }
+        AppAction::TransitionToEditing(channel_id, message, content) => {
+            let (channel_id_clone, message_clone, content_clone) =
+                (channel_id.clone(), message.clone(), content.clone());
+
+            state.saved_input = Some(state.input.clone());
+            state.input = content.clone();
+            state.cursor_position = content.len();
+            state.selection_index = 0;
+            state.state = AppState::Editing(channel_id_clone, message_clone, content_clone);
+            state.status_message =
+                "Editing a message in channel. Press Enter to send message. Esc to return to channels"
+                    .to_string();
         }
         AppAction::TransitionToHome => {
             state.input = String::new();

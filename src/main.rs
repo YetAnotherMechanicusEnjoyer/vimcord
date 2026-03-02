@@ -1,4 +1,9 @@
-use std::{env, io, process, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    env, io, process,
+    sync::Arc,
+    time::Duration,
+};
 
 use crossterm::{
     cursor::SetCursorStyle,
@@ -18,13 +23,15 @@ use tokio::{
 };
 
 use crate::{
-    api::{ApiClient, Channel, Emoji, Guild, Message, channel::PermissionContext, dm::DM},
+    api::{ApiClient, Channel, Emoji, Guild, Message, User, channel::PermissionContext, dm::DM},
+    logs::{LogType, print_log},
     signals::{restore_terminal, setup_ctrlc_handler},
     ui::{draw_ui, handle_input_events, handle_keys_events, vim::VimState},
 };
 
 mod api;
 mod config;
+mod logs;
 mod signals;
 mod ui;
 
@@ -55,6 +62,7 @@ pub enum AppState {
     SelectingChannel(String),
     Chatting(String),
     EmojiSelection(String),
+    Editing(String, Message, String),
     Loading(Window),
 }
 
@@ -69,13 +77,18 @@ pub enum AppAction {
     SelectPrevious,
     SelectLeft,
     SelectRight,
+    ApiDeleteMessage(String, String),
+    ApiEditMessage(String, String, String),
     ApiUpdateMessages(Vec<Message>),
     ApiUpdateChannel(Vec<Channel>),
     ApiUpdateEmojis(Vec<Emoji>),
     ApiUpdateGuilds(Vec<Guild>),
     ApiUpdateDMs(Vec<DM>),
     ApiUpdateContext(Option<PermissionContext>),
+    ApiUpdateCurrentUser(User),
+    ApiUpdateUnreadMessages(String, Vec<Message>),
     TransitionToChat(String),
+    TransitionToEditing(String, Message, String),
     TransitionToChannels(String),
     TransitionToGuilds,
     TransitionToDM,
@@ -103,6 +116,7 @@ pub struct App {
     custom_emojis: Vec<Emoji>,
     dms: Vec<DM>,
     input: String,
+    saved_input: Option<String>,
     selection_index: usize,
     status_message: String,
     terminal_height: usize,
@@ -111,12 +125,17 @@ pub struct App {
     emoji_filter: String,
     /// Byte position where the emoji filter started (position of the ':')
     emoji_filter_start: Option<usize>,
+    chat_scroll_offset: usize,
     tick_count: usize,
     context: Option<PermissionContext>,
     mode: InputMode,
     cursor_position: usize,
     vim_mode: bool,
     vim_state: Option<VimState>,
+    current_user: Option<User>,
+    last_message_ids: HashMap<String, String>,
+    discreet_notifs: bool,
+    deleted_message_ids: HashSet<String>,
 }
 
 async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
@@ -137,6 +156,7 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
         custom_emojis: Vec::new(),
         dms: Vec::new(),
         input: String::new(),
+        saved_input: None,
         selection_index: 0,
         status_message:
             "Browse either DMs or Servers. Use arrows to navigate, Enter to select & Esc to quit"
@@ -146,6 +166,7 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
         emoji_map: config.emoji_map,
         emoji_filter: String::new(),
         emoji_filter_start: None,
+        chat_scroll_offset: 0,
         tick_count: 0,
         context: None,
         mode: InputMode::Normal,
@@ -156,6 +177,10 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
         } else {
             None
         },
+        current_user: None,
+        last_message_ids: HashMap::new(),
+        discreet_notifs: config.discreet_notifs,
+        deleted_message_ids: HashSet::new(),
     }));
 
     let (tx_action, mut rx_action) = mpsc::channel::<AppAction>(32);
@@ -172,11 +197,12 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
         loop {
             tokio::select! {
                 _ = rx_shutdown_ticker.recv() => {
+                    let _ = print_log("Shutdown Program.".into(), LogType::Info);
                     return;
                 }
                 _ = interval.tick() => {
                     if let Err(e) = tx_ticker.send(AppAction::Tick).await {
-                        eprintln!("Failed to send tick action: {e}");
+                        let _ = print_log(format!("Failed to send tick action: {e}").into(), LogType::Error);
                         return;
                     }
                 }
@@ -187,7 +213,7 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
     let input_handle: JoinHandle<Result<(), io::Error>> = tokio::spawn(async move {
         let res = handle_input_events(tx_input, rx_shutdown_input).await;
         if let Err(e) = &res {
-            eprintln!("Input Error: {e}");
+            let _ = print_log(format!("Input Error: {e}").into(), LogType::Error);
         }
         res
     });
@@ -205,10 +231,28 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
             api_client_clone = state.api_client.clone();
         }
 
+        match api_client_clone.get_current_user().await {
+            Ok(user) => {
+                if let Err(e) = tx_api.send(AppAction::ApiUpdateCurrentUser(user)).await {
+                    let _ = print_log(
+                        format!("Failed to send current user update action: {e}").into(),
+                        LogType::Error,
+                    );
+                }
+            }
+            Err(e) => {
+                let mut state = api_state.lock().await;
+                state.status_message = format!("Failed to load current user. {e}");
+            }
+        }
+
         match api_client_clone.get_current_user_guilds().await {
             Ok(guilds) => {
                 if let Err(e) = tx_api.send(AppAction::ApiUpdateGuilds(guilds)).await {
-                    eprintln!("Failed to send guild update action: {e}");
+                    let _ = print_log(
+                        format!("Failed to send guild update action: {e}").into(),
+                        LogType::Error,
+                    );
                 }
             }
             Err(e) => {
@@ -220,7 +264,10 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
         match api_client_clone.get_dms().await {
             Ok(dms) => {
                 if let Err(e) = tx_api.send(AppAction::ApiUpdateDMs(dms)).await {
-                    eprintln!("Failed to send DM update action: {e}");
+                    let _ = print_log(
+                        format!("Failed to send DM update action: {e}").into(),
+                        LogType::Error,
+                    );
                 }
             }
             Err(e) => {
@@ -260,12 +307,76 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
                         {
                             Ok(messages) => {
                                 if let Err(e) = tx_api.send(AppAction::ApiUpdateMessages(messages)).await {
-                                    eprintln!("Failed to send message update action: {e}");
+                                    let _ = print_log(format!("Failed to send message update action: {e}").into(), LogType::Error);
                                     return;
                                 }
                             }
                             Err(e) => {
                                 api_state.lock().await.status_message = format!("Error loading chat: {e}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    let background_state = Arc::clone(&app_state);
+    let tx_background = tx_action.clone();
+    let mut rx_shutdown_background = tx_shutdown.subscribe();
+    let mut background_interval = time::interval(Duration::from_secs(3));
+
+    let background_handle: JoinHandle<()> = tokio::spawn(async move {
+        let api_client_clone;
+        {
+            let state = background_state.lock().await;
+            api_client_clone = state.api_client.clone();
+        }
+
+        // Wait a bit before starting background loops so we don't clobber initial requests
+        tokio::time::sleep(Duration::from_secs(5)).await;
+
+        loop {
+            tokio::select! {
+                _ = rx_shutdown_background.recv() => {
+                    return;
+                }
+
+                _ = background_interval.tick() => {
+                    // Fetch DMs to get the latest last_message_id for each
+                    if let Ok(dms) = api_client_clone.get_dms().await {
+                        let mut dms_to_fetch = Vec::new();
+
+                        {
+                            let state = background_state.lock().await;
+
+                            for dm in dms {
+                                if let Some(new_last_id) = &dm.last_message_id {
+                                    // Only fetch messages if we know we have a new message
+                                    let should_fetch = match state.last_message_ids.get(&dm.id) {
+                                        Some(tracked_id) => new_last_id.parse::<u64>().unwrap_or_default() > tracked_id.parse::<u64>().unwrap_or_default(),
+                                        None => true,
+                                    };
+
+                                    if should_fetch {
+                                        dms_to_fetch.push(dm.id.clone());
+                                    }
+                                }
+                            }
+                        }
+
+                        for channel_id in dms_to_fetch {
+                            if let Ok(messages) = api_client_clone.get_channel_messages(
+                                &channel_id,
+                                None,
+                                None,
+                                None,
+                                Some(5),
+                            ).await
+                                && let Err(e) = tx_background.send(AppAction::ApiUpdateUnreadMessages(channel_id, messages)).await
+                            {
+                                let _ = print_log(format!("Failed to send unread message update action: {e}").into(), LogType::Error);
+                                return;
                             }
                         }
                     }
@@ -311,7 +422,7 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
 
     let _ = tx_shutdown.send(());
 
-    let _ = tokio::join!(input_handle, api_handle, ticker_handle);
+    let _ = tokio::join!(input_handle, api_handle, ticker_handle, background_handle);
 
     Ok(())
 }
@@ -322,7 +433,9 @@ async fn main() -> Result<(), Error> {
     const ENV_TOKEN: &str = "DISCORD_TOKEN";
 
     let token: String = env::var(ENV_TOKEN).unwrap_or_else(|_| {
-        eprintln!("Env Error: DISCORD_TOKEN variable is missing.");
+        let msg = "Env Error: DISCORD_TOKEN variable is missing.";
+        eprintln!("{msg}");
+        let _ = print_log(msg.into(), LogType::Error);
         process::exit(1);
     });
 

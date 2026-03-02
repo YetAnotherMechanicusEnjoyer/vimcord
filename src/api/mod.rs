@@ -6,13 +6,13 @@ pub mod message;
 pub mod user;
 
 use reqwest::{Client, Method};
+use serde::de::DeserializeOwned;
 
 pub use channel::Channel;
 pub use dm::DM;
 pub use emoji::Emoji;
 pub use guild::Guild;
 pub use message::Message;
-use serde::de::DeserializeOwned;
 pub use user::User;
 
 use crate::{
@@ -60,6 +60,36 @@ impl ApiClient {
 
         if status.is_success() {
             Ok(response.json::<T>().await?)
+        } else {
+            let body = response
+                .text()
+                .await
+                .unwrap_or("Failed to read error body".to_string());
+            Err(format!("API Error: Status {status}. Details: {body}").into())
+        }
+    }
+
+    async fn api_request_no_content(
+        &self,
+        endpoint: &str,
+        method: Method,
+        body: Option<serde_json::Value>,
+    ) -> Result<(), Error> {
+        let url = format!("{}/{}", self.base_url, endpoint);
+        let mut request = self
+            .http_client
+            .request(method, &url)
+            .header("Authorization", self.auth_token.as_str());
+
+        if let Some(data) = body {
+            request = request.json(&data);
+        }
+
+        let response = request.send().await?;
+        let status = response.status();
+
+        if status.is_success() {
+            Ok(())
         } else {
             let body = response
                 .text()
@@ -149,6 +179,29 @@ impl ApiClient {
             format!("channels/{channel_id}/messages").as_str(),
             Method::POST,
             Some(serde_json::json!({ "content": content, "tts": tts })),
+        )
+        .await
+    }
+
+    pub async fn edit_message(
+        &self,
+        channel_id: &str,
+        message_id: &str,
+        content: Option<String>,
+    ) -> Result<Message, Error> {
+        self.api_request(
+            format!("channels/{channel_id}/messages/{message_id}").as_str(),
+            Method::PATCH,
+            Some(serde_json::json!({ "content": content})),
+        )
+        .await
+    }
+
+    pub async fn delete_message(&self, channel_id: &str, message_id: &str) -> Result<(), Error> {
+        self.api_request_no_content(
+            format!("channels/{channel_id}/messages/{message_id}").as_str(),
+            Method::DELETE,
+            None,
         )
         .await
     }
