@@ -124,6 +124,7 @@ pub struct App {
     terminal_width: usize,
     emoji_map: Vec<(String, String)>,
     emoji_filter: String,
+    emoji_index: usize,
     /// Byte position where the emoji filter started (position of the ':')
     emoji_filter_start: Option<usize>,
     chat_scroll_offset: usize,
@@ -167,6 +168,7 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
         emoji_map: config.emoji_map,
         emoji_filter: String::new(),
         emoji_filter_start: None,
+        emoji_index: 0,
         chat_scroll_offset: 0,
         tick_count: 0,
         context: None,

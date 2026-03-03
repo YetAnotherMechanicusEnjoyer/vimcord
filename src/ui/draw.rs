@@ -553,9 +553,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
         }
 
         if !filtered_items.is_empty() {
-            app.selection_index = app
-                .selection_index
-                .min(filtered_items.len().saturating_sub(1));
+            app.emoji_index = app.emoji_index.min(filtered_items.len().saturating_sub(1));
 
             let emoji_list = List::new(filtered_items)
                 .block(
@@ -570,10 +568,10 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                 .highlight_style(Style::default().reversed())
                 .highlight_symbol(">> ");
 
-            let mut state = ListState::default().with_selected(Some(app.selection_index));
+            let mut state = ListState::default().with_selected(Some(app.emoji_index));
             f.render_stateful_widget(emoji_list, popup_rect, &mut state);
         } else {
-            app.selection_index = 0;
+            app.emoji_index = 0;
         }
     }
 
