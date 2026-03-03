@@ -73,6 +73,7 @@ impl GatewayClient {
             "op": 2, // Identify
             "d": {
                 "token": token,
+                "intents": 37376, // 1 << 9 (GUILDS_MESSAGES) | 1 << 12 (DIRECT_MESSAGES) | 1 << 15 (MESSAGE_CONTENT)
                 "properties": {
                     "os": "linux",
                     "browser": "vimcord",
