@@ -1054,8 +1054,8 @@ pub async fn handle_keys_events(
             if Some(msg.channel_id.clone()) == active_channel_id {
                 let mut msgs = state.messages.clone();
                 msgs.push(msg.clone());
-                // In case it came slightly out of order
-                msgs.sort_by_key(|m| m.id.parse::<u64>().unwrap_or_default());
+                // Sort by descending ID: newest messages first (to match REST API response)
+                msgs.sort_by_key(|m| std::cmp::Reverse(m.id.parse::<u64>().unwrap_or_default()));
                 state.messages = msgs;
             } else if state.dms.iter().any(|dm| dm.id == msg.channel_id) {
                 // If it's a DM and we're not actively viewing it, maybe notify
