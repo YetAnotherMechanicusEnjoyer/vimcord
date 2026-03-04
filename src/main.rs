@@ -146,6 +146,7 @@ pub struct App {
     deleted_message_ids: HashSet<String>,
     pub last_typing_sent: Option<std::time::Instant>,
     pub typing_users: HashMap<String, HashMap<String, std::time::Instant>>,
+    pub slient_typing: bool,
 }
 
 async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
@@ -194,6 +195,7 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
         deleted_message_ids: HashSet::new(),
         last_typing_sent: None,
         typing_users: HashMap::new(),
+        slient_typing: config.slient_typing,
     }));
 
     let (tx_action, mut rx_action) = mpsc::channel::<AppAction>(32);
