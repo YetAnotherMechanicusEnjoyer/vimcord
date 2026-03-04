@@ -93,6 +93,7 @@ pub enum AppAction {
     GatewayMessageCreate(Message),
     GatewayMessageUpdate(PartialMessage),
     GatewayMessageDelete(String, String),
+    GatewayTypingStart(String, String, Option<String>),
     TransitionToChat(String),
     TransitionToEditing(String, Message, String, char),
     TransitionToChannels(String),
@@ -140,9 +141,13 @@ pub struct App {
     vim_mode: bool,
     vim_state: Option<VimState>,
     current_user: Option<User>,
-    last_message_ids: HashMap<String, String>,
-    discreet_notifs: bool,
+    pub last_message_ids: HashMap<String, String>,
+    pub discreet_notifs: bool,
     deleted_message_ids: HashSet<String>,
+    last_typing_sent: Option<std::time::Instant>,
+    typing_users: HashMap<String, HashMap<String, std::time::Instant>>,
+    user_names: HashMap<String, String>,
+    silent_typing: bool,
 }
 
 async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
@@ -189,6 +194,10 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
         last_message_ids: HashMap::new(),
         discreet_notifs: config.discreet_notifs,
         deleted_message_ids: HashSet::new(),
+        last_typing_sent: None,
+        typing_users: HashMap::new(),
+        user_names: HashMap::new(),
+        silent_typing: config.silent_typing,
     }));
 
     let (tx_action, mut rx_action) = mpsc::channel::<AppAction>(32);

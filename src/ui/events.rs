@@ -626,6 +626,28 @@ async fn move_selection(state: &mut MutexGuard<'_, App>, n: i32, total_filtered_
     }
 }
 
+fn handle_user_typing(state: &mut App) {
+    if state.silent_typing {
+        return;
+    }
+    if let AppState::Chatting(channel_id) = &state.state {
+        let now = std::time::Instant::now();
+        let should_send = state
+            .last_typing_sent
+            .is_none_or(|last| now.duration_since(last).as_secs() >= 8);
+        if should_send && !state.input.is_empty() {
+            state.last_typing_sent = Some(now);
+            let api_client_clone = state.api_client.clone();
+            let channel_id_clone = channel_id.clone();
+            tokio::spawn(async move {
+                let _ = api_client_clone
+                    .trigger_typing_indicator(&channel_id_clone)
+                    .await;
+            });
+        }
+    }
+}
+
 pub async fn handle_keys_events(
     mut state: MutexGuard<'_, App>,
     action: AppAction,
@@ -726,6 +748,7 @@ pub async fn handle_keys_events(
             let pos = state.cursor_position;
             state.input.insert_str(pos, &text);
             state.cursor_position += text.len();
+            handle_user_typing(&mut state);
         }
         AppAction::InputChar(c) => {
             if c == ':' && (!state.vim_mode || state.mode == InputMode::Insert) {
@@ -735,6 +758,7 @@ pub async fn handle_keys_events(
 
             if !state.vim_mode {
                 insert_char_at_cursor(&mut state, c);
+                handle_user_typing(&mut state);
             } else {
                 match state.mode {
                     InputMode::Normal => {
@@ -742,6 +766,7 @@ pub async fn handle_keys_events(
                     }
                     InputMode::Insert => {
                         insert_char_at_cursor(&mut state, c);
+                        handle_user_typing(&mut state);
                     }
                 }
             }
@@ -788,6 +813,7 @@ pub async fn handle_keys_events(
                         state.input.remove(pos - char_len);
                         state.cursor_position -= char_len;
                     }
+                    handle_user_typing(&mut state);
                 }
                 AppState::EmojiSelection(channel_id) => {
                     let pos = state.cursor_position;
@@ -858,6 +884,7 @@ pub async fn handle_keys_events(
                             state.input.remove(pos - char_len);
                         }
                     }
+                    handle_user_typing(&mut state);
                 }
                 AppState::EmojiSelection(channel_id) => {
                     let pos = state.cursor_position + 1;
@@ -943,6 +970,12 @@ pub async fn handle_keys_events(
                     .last_message_ids
                     .insert(channel_id, newest_msg.id.clone());
             }
+            // Seed the username cache from all loaded message authors
+            for msg in &new_messages {
+                state
+                    .user_names
+                    .insert(msg.author.id.clone(), msg.author.username.clone());
+            }
             state.messages = new_messages
                 .into_iter()
                 .filter(|m| !state.deleted_message_ids.contains(&m.id))
@@ -973,8 +1006,14 @@ pub async fn handle_keys_events(
         AppAction::ApiUpdateDMs(new_dms) => {
             state.dms = new_dms.clone();
 
-            // Initialize last_message_ids for all DMs on load
+            // Initialize last_message_ids for all DMs on load and seed username cache
             for dm in new_dms {
+                // Seed user_names from all DM recipients
+                for recipient in &dm.recipients {
+                    state
+                        .user_names
+                        .insert(recipient.id.clone(), recipient.username.clone());
+                }
                 if let Some(msg_id) = dm.last_message_id {
                     // Only insert if it doesn't already exist so we don't accidentally
                     // overwrite during a mid-session refresh
@@ -997,6 +1036,16 @@ pub async fn handle_keys_events(
         AppAction::ApiUpdateCurrentUser(user) => {
             state.current_user = Some(user);
         }
+        AppAction::GatewayTypingStart(channel_id, user_id, display_name) => {
+            // Typing indicator expires after 10 seconds or when the user sends a message
+            let now = std::time::Instant::now();
+            let channel_typers = state.typing_users.entry(channel_id).or_default();
+            channel_typers.insert(user_id.clone(), now);
+            // Cache the display name if provided by the gateway event
+            if let Some(name) = display_name {
+                state.user_names.insert(user_id, name);
+            }
+        }
 
         AppAction::GatewayMessageCreate(msg) => {
             let active_channel_id = if let AppState::Chatting(id) = &state.state {
@@ -1007,6 +1056,10 @@ pub async fn handle_keys_events(
 
             if Some(msg.channel_id.clone()) == active_channel_id {
                 let mut msgs = state.messages.clone();
+                // Cache author username from incoming message
+                state
+                    .user_names
+                    .insert(msg.author.id.clone(), msg.author.username.clone());
                 msgs.push(msg.clone());
                 // Sort by descending ID: newest messages first (to match REST API response)
                 msgs.sort_by_key(|m| std::cmp::Reverse(m.id.parse::<u64>().unwrap_or_default()));
@@ -1036,6 +1089,11 @@ pub async fn handle_keys_events(
                 state
                     .last_message_ids
                     .insert(msg.channel_id.clone(), msg.id.clone());
+            }
+
+            // Remove the typing indicator if the author sent a message in the channel
+            if let Some(typers) = state.typing_users.get_mut(&msg.channel_id) {
+                typers.remove(&msg.author.id);
             }
         }
         AppAction::GatewayMessageUpdate(msg) => {
@@ -1093,6 +1151,7 @@ pub async fn handle_keys_events(
             state.chat_scroll_offset = 0;
             state.cursor_position = 0;
             state.selection_index = 0;
+            state.last_typing_sent = None;
             state.status_message =
                 "Chatting in channel. Press Enter to send message, Esc to return to channels."
                     .to_string();
@@ -1217,6 +1276,21 @@ pub async fn handle_keys_events(
         }
         AppAction::Tick => {
             state.tick_count = state.tick_count.wrapping_add(1);
+
+            let now = std::time::Instant::now();
+            let mut empty_channels = Vec::new();
+
+            for (channel_id, typers) in state.typing_users.iter_mut() {
+                typers.retain(|_, timestamp| now.duration_since(*timestamp).as_secs() < 10);
+                if typers.is_empty() {
+                    empty_channels.push(channel_id.clone());
+                }
+            }
+
+            for channel_id in empty_channels {
+                state.typing_users.remove(&channel_id);
+            }
+
             return Some(KeywordAction::Continue);
         }
     }

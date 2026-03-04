@@ -241,6 +241,15 @@ impl ApiClient {
         self.api_request(&endpoint, Method::GET, None).await
     }
 
+    pub async fn trigger_typing_indicator(&self, channel_id: &str) -> Result<(), Error> {
+        self.api_request_no_content(
+            format!("channels/{channel_id}/typing").as_str(),
+            Method::POST,
+            None,
+        )
+        .await
+    }
+
     pub async fn get_current_user_guilds(&self) -> Result<Vec<Guild>, Error> {
         self.api_request("/users/@me/guilds", Method::GET, None)
             .await

@@ -73,7 +73,7 @@ impl GatewayClient {
             "op": 2, // Identify
             "d": {
                 "token": token,
-                "intents": 37376, // 1 << 9 (GUILDS_MESSAGES) | 1 << 12 (DIRECT_MESSAGES) | 1 << 15 (MESSAGE_CONTENT)
+                "intents": 55808, // 1<<9 (GUILDS_MESSAGES) | 1<<11 (GUILD_MESSAGE_TYPING) | 1<<12 (DIRECT_MESSAGES) | 1<<14 (DIRECT_MESSAGE_TYPING) | 1<<15 (MESSAGE_CONTENT)
                 "properties": {
                     "os": "linux",
                     "browser": "vimcord",
@@ -172,6 +172,27 @@ impl GatewayClient {
                         .send(AppAction::GatewayMessageDelete(
                             id.to_string(),
                             channel_id.to_string(),
+                        ))
+                        .await;
+                }
+            }
+            "TYPING_START" => {
+                if let (Some(channel_id), Some(user_id), Some(_timestamp)) = (
+                    d["channel_id"].as_str(),
+                    d["user_id"].as_str(),
+                    d["timestamp"].as_u64(),
+                ) {
+                    // Prefer guild nick, fall back to member username, then top-level user (DMs)
+                    let display_name = d["member"]["nick"]
+                        .as_str()
+                        .or_else(|| d["member"]["user"]["username"].as_str())
+                        .or_else(|| d["user"]["username"].as_str())
+                        .map(|s| s.to_string());
+                    let _ = action_tx
+                        .send(AppAction::GatewayTypingStart(
+                            channel_id.to_string(),
+                            user_id.to_string(),
+                            display_name,
                         ))
                         .await;
                 }
