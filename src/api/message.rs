@@ -10,3 +10,12 @@ pub struct Message {
     pub content: Option<String>,
     pub timestamp: String,
 }
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct PartialMessage {
+    pub id: String,
+    pub channel_id: String,
+    pub author: Option<User>,
+    pub content: Option<String>,
+    pub timestamp: Option<String>,
+}

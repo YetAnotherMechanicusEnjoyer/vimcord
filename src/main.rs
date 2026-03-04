@@ -23,7 +23,10 @@ use tokio::{
 };
 
 use crate::{
-    api::{ApiClient, Channel, Emoji, Guild, Message, User, channel::PermissionContext, dm::DM},
+    api::{
+        ApiClient, Channel, Emoji, Guild, Message, PartialMessage, User,
+        channel::PermissionContext, dm::DM,
+    },
     logs::{LogType, print_log},
     signals::{restore_terminal, setup_ctrlc_handler},
     ui::{draw_ui, handle_input_events, handle_keys_events, vim::VimState},
@@ -80,14 +83,16 @@ pub enum AppAction {
     SelectRight,
     ApiDeleteMessage(String, String),
     ApiEditMessage(String, String, String),
-    ApiUpdateMessages(Vec<Message>),
+    ApiUpdateMessages(String, Vec<Message>),
     ApiUpdateChannel(Vec<Channel>),
     ApiUpdateEmojis(Vec<Emoji>),
     ApiUpdateGuilds(Vec<Guild>),
     ApiUpdateDMs(Vec<DM>),
     ApiUpdateContext(Option<PermissionContext>),
     ApiUpdateCurrentUser(User),
-    ApiUpdateUnreadMessages(String, Vec<Message>),
+    GatewayMessageCreate(Message),
+    GatewayMessageUpdate(PartialMessage),
+    GatewayMessageDelete(String, String),
     TransitionToChat(String),
     TransitionToEditing(String, Message, String, char),
     TransitionToChannels(String),
@@ -225,7 +230,19 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
     let tx_api = tx_action.clone();
     let mut rx_shutdown_api = tx_shutdown.subscribe();
 
-    let mut interval = time::interval(Duration::from_secs(2));
+    let rx_shutdown_gateway = tx_shutdown.subscribe();
+
+    let gateway_token = token.clone();
+    let gateway_tx = tx_action.clone();
+    let gateway_handle: JoinHandle<()> = tokio::spawn(async move {
+        let client = crate::api::GatewayClient::new(gateway_token, gateway_tx);
+        if let Err(e) = client.connect(rx_shutdown_gateway).await {
+            let _ = print_log(
+                format!("Gateway connection failed: {e}").into(),
+                LogType::Error,
+            );
+        }
+    });
 
     let api_handle: JoinHandle<()> = tokio::spawn(async move {
         let api_client_clone;
@@ -281,111 +298,8 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
 
         tx_api.send(AppAction::EndLoading).await.ok();
 
-        loop {
-            tokio::select! {
-                _ = rx_shutdown_api.recv() => {
-                    return;
-                }
-
-                _ = interval.tick() => {
-                    let current_channel_id = {
-                        let state = api_state.lock().await;
-                        match &state.state {
-                            AppState::Chatting(id) => Some(id.clone()),
-                            _ => None,
-                        }
-                    };
-
-                    if let Some(channel_id) = current_channel_id {
-                        const MESSAGE_LIMIT: usize = 100;
-
-                        match api_client_clone.get_channel_messages(
-                            &channel_id,
-                            None,
-                            None,
-                            None,
-                            Some(MESSAGE_LIMIT),
-                        )
-                        .await
-                        {
-                            Ok(messages) => {
-                                if let Err(e) = tx_api.send(AppAction::ApiUpdateMessages(messages)).await {
-                                    let _ = print_log(format!("Failed to send message update action: {e}").into(), LogType::Error);
-                                    return;
-                                }
-                            }
-                            Err(e) => {
-                                api_state.lock().await.status_message = format!("Error loading chat: {e}");
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    });
-
-    let background_state = Arc::clone(&app_state);
-    let tx_background = tx_action.clone();
-    let mut rx_shutdown_background = tx_shutdown.subscribe();
-    let mut background_interval = time::interval(Duration::from_secs(3));
-
-    let background_handle: JoinHandle<()> = tokio::spawn(async move {
-        let api_client_clone;
-        {
-            let state = background_state.lock().await;
-            api_client_clone = state.api_client.clone();
-        }
-
-        // Wait a bit before starting background loops so we don't clobber initial requests
-        tokio::time::sleep(Duration::from_secs(5)).await;
-
-        loop {
-            tokio::select! {
-                _ = rx_shutdown_background.recv() => {
-                    return;
-                }
-
-                _ = background_interval.tick() => {
-                    // Fetch DMs to get the latest last_message_id for each
-                    if let Ok(dms) = api_client_clone.get_dms().await {
-                        let mut dms_to_fetch = Vec::new();
-
-                        {
-                            let state = background_state.lock().await;
-
-                            for dm in dms {
-                                if let Some(new_last_id) = &dm.last_message_id {
-                                    // Only fetch messages if we know we have a new message
-                                    let should_fetch = match state.last_message_ids.get(&dm.id) {
-                                        Some(tracked_id) => new_last_id.parse::<u64>().unwrap_or_default() > tracked_id.parse::<u64>().unwrap_or_default(),
-                                        None => true,
-                                    };
-
-                                    if should_fetch {
-                                        dms_to_fetch.push(dm.id.clone());
-                                    }
-                                }
-                            }
-                        }
-
-                        for channel_id in dms_to_fetch {
-                            if let Ok(messages) = api_client_clone.get_channel_messages(
-                                &channel_id,
-                                None,
-                                None,
-                                None,
-                                Some(5),
-                            ).await
-                                && let Err(e) = tx_background.send(AppAction::ApiUpdateUnreadMessages(channel_id, messages)).await
-                            {
-                                let _ = print_log(format!("Failed to send unread message update action: {e}").into(), LogType::Error);
-                                return;
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        // Wait for shutdown now since HTTP polling is removed
+        let _ = rx_shutdown_api.recv().await;
     });
 
     loop {
@@ -425,7 +339,7 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
 
     let _ = tx_shutdown.send(());
 
-    let _ = tokio::join!(input_handle, api_handle, ticker_handle, background_handle);
+    let _ = tokio::join!(input_handle, api_handle, ticker_handle, gateway_handle);
 
     Ok(())
 }
