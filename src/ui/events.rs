@@ -627,7 +627,7 @@ async fn move_selection(state: &mut MutexGuard<'_, App>, n: i32, total_filtered_
 }
 
 fn handle_user_typing(state: &mut App) {
-    if state.slient_typing {
+    if state.silent_typing {
         return;
     }
     if let AppState::Chatting(channel_id) = &state.state {
