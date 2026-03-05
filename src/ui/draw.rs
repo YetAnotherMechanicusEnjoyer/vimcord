@@ -177,7 +177,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
             f.render_widget(Clear, chunks[0]);
             f.render_stateful_widget(list, chunks[0], &mut state);
         }
-        AppState::SelectingChannel(guild_id) => {
+        AppState::SelectingChannel(_, guild_name) => {
             let filter_text = app.input.to_lowercase();
 
             let permission_context = &app.context;
@@ -301,7 +301,8 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
             list_items.extend(hidden_items);
 
             let title = format!(
-                "Channels for Guild: {guild_id} | Channels found: {} | Actual index: {}",
+                "Channels for Guild: {} | Channels found: {} | Actual index: {}",
+                guild_name,
                 num_filtered.saturating_sub(1),
                 app.selection_index
             );
@@ -320,7 +321,9 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
             f.render_widget(Clear, chunks[0]);
             f.render_stateful_widget(list, chunks[0], &mut state);
         }
-        AppState::Chatting(_) | AppState::EmojiSelection(_) | AppState::Editing(_, _, _) => {
+        AppState::Chatting(_, channel_name)
+        | AppState::EmojiSelection(_, channel_name)
+        | AppState::Editing(_, channel_name, _, _) => {
             if max_width == 0 {
                 return;
             }
@@ -485,13 +488,12 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                 app.chat_scroll_offset = total_visual_height.saturating_sub(max_height);
             }
 
+            let title = format!("vimcord Client - Chatting in channel - {}", channel_name);
+
             let paragraph = Paragraph::new(final_content)
                 .block(
                     Block::default()
-                        .title(Span::styled(
-                            "vimcord Client - Chatting",
-                            Style::default().fg(Color::Yellow),
-                        ))
+                        .title(Span::styled(title, Style::default().fg(Color::Yellow)))
                         .borders(Borders::ALL)
                         .border_type(BorderType::Double),
                 )
@@ -503,7 +505,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
         }
     };
 
-    if let AppState::EmojiSelection(_) = &app.state {
+    if let AppState::EmojiSelection(_, _) = &app.state {
         let input_area = chunks[1];
         let emoji_popup_height = 8;
 
@@ -575,7 +577,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
         }
     }
 
-    let is_editing = matches!(&app.state, AppState::Editing(_, _, _));
+    let is_editing = matches!(&app.state, AppState::Editing(_, _, _, _));
     let border_color = if is_editing {
         Color::LightMagenta
     } else {
@@ -590,9 +592,9 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
     let mut display_status_message = app.status_message.clone();
 
     let active_channel_id = match &app.state {
-        AppState::Chatting(id) => Some(id),
-        AppState::EmojiSelection(id) => Some(id),
-        AppState::Editing(id, _, _) => Some(id),
+        AppState::Chatting(id, _) => Some(id),
+        AppState::EmojiSelection(id, _) => Some(id),
+        AppState::Editing(id, _, _, _) => Some(id),
         _ => None,
     };
 

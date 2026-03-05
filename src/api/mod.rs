@@ -116,6 +116,11 @@ impl ApiClient {
             .await
     }
 
+    pub async fn get_guild(&self, guild_id: &str) -> Result<Guild, Error> {
+        self.api_request(format!("guilds/{guild_id}").as_str(), Method::GET, None)
+            .await
+    }
+
     pub async fn get_guild_emojis(&self, guild_id: &str) -> Result<Vec<Emoji>, Error> {
         self.api_request(
             format!("guilds/{guild_id}/emojis").as_str(),

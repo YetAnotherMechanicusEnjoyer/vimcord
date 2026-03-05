@@ -62,10 +62,10 @@ pub enum AppState {
     Home,
     SelectingGuild,
     SelectingDM,
-    SelectingChannel(String),
-    Chatting(String),
-    EmojiSelection(String),
-    Editing(String, Message, String),
+    SelectingChannel(String, String),
+    Chatting(String, String),
+    EmojiSelection(String, String),
+    Editing(String, String, Message, String),
     Loading(Window),
 }
 
