@@ -31,9 +31,11 @@ The following features are grouped by **Importance** (Foundation, Critical, High
      <strong>Description</strong>: Ability for the user to delete their own messages.<br/>
      <strong>Implementation</strong>: Add a keybinding in the UI to call <code>DELETE /channels/{channel.id}/messages/{message.id}</code>.
     </details>
-2. **Mark as Read / Read Receipts** *(Difficulty: Easy)*
-   - **Description**: Updating the local and remote "last read" state to clear unread notification badges.
-   - **Implementation**: Hitting the `/ack` endpoint for channels when viewed.
+2. <details> 
+     <summary><sub><s><strong>Mark as Read / Read Receipts</strong> <em>(Difficulty: Easy)</em></s></sub></summary>
+     <strong>Description</strong>: Updating the local and remote "last read" state to clear unread notification badges.<br/>
+     <strong>Implementation</strong>: Hitting the `/ack` endpoint for channels when viewed.
+    </details>
 3. **Proper Push Notifications** *(Difficulty: Medium) (🔒 Blocked by WebSockets)*
    - **Description**: Replace the current hacky workaround for notifications with reliable, instant desktop push notifications for new messages.
    - **Implementation**: Listen for `MESSAGE_CREATE` events in real-time over the WebSocket Gateway to trigger native notifications correctly without missing any or double-notifying.
