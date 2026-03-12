@@ -356,7 +356,11 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                             .split('.')
                             .next()
                             .unwrap_or(""),
-                    message.author.username,
+                    message
+                        .author
+                        .global_name
+                        .clone()
+                        .unwrap_or(message.author.username.clone()),
                     message.content.as_deref().unwrap_or("(*non-text*)")
                 );
 
@@ -436,7 +440,14 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                     .unwrap_or("")
                     .to_string();
 
-                let author = format!(" {}: ", message.author.username);
+                let author = format!(
+                    " {}: ",
+                    message
+                        .author
+                        .global_name
+                        .clone()
+                        .unwrap_or(message.author.username.clone())
+                );
 
                 let content = message.map_mentions();
 
