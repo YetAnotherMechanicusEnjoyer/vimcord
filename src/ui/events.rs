@@ -986,7 +986,16 @@ pub async fn handle_keys_events(
             if let Some(newest_msg) = new_messages.iter().max_by_key(|m| &m.id) {
                 state
                     .last_message_ids
-                    .insert(channel_id, newest_msg.id.clone());
+                    .insert(channel_id.clone(), newest_msg.id.clone());
+
+                let api_client_clone = state.api_client.clone();
+                let channel_id_clone = channel_id.clone();
+                let msg_id_clone = newest_msg.id.clone();
+                tokio::spawn(async move {
+                    let _ = api_client_clone
+                        .ack_message(&channel_id_clone, &msg_id_clone)
+                        .await;
+                });
             }
             // Seed the username cache from all loaded message authors
             for msg in &new_messages {
@@ -1082,6 +1091,19 @@ pub async fn handle_keys_events(
                 // Sort by descending ID: newest messages first (to match REST API response)
                 msgs.sort_by_key(|m| std::cmp::Reverse(m.id.parse::<u64>().unwrap_or_default()));
                 state.messages = msgs;
+
+                state
+                    .last_message_ids
+                    .insert(msg.channel_id.clone(), msg.id.clone());
+
+                let api_client_clone = state.api_client.clone();
+                let channel_id_clone = msg.channel_id.clone();
+                let msg_id_clone = msg.id.clone();
+                tokio::spawn(async move {
+                    let _ = api_client_clone
+                        .ack_message(&channel_id_clone, &msg_id_clone)
+                        .await;
+                });
             } else if state.dms.iter().any(|dm| dm.id == msg.channel_id) {
                 // If it's a DM and we're not actively viewing it, maybe notify
                 let is_self = state

@@ -255,6 +255,15 @@ impl ApiClient {
         .await
     }
 
+    pub async fn ack_message(&self, channel_id: &str, message_id: &str) -> Result<(), Error> {
+        self.api_request_no_content(
+            format!("channels/{channel_id}/messages/{message_id}/ack").as_str(),
+            Method::POST,
+            Some(serde_json::json!({"token": null})),
+        )
+        .await
+    }
+
     pub async fn get_current_user_guilds(&self) -> Result<Vec<Guild>, Error> {
         self.api_request("/users/@me/guilds", Method::GET, None)
             .await
