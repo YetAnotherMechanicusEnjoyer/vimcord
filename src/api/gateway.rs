@@ -73,7 +73,8 @@ impl GatewayClient {
             "op": 2, // Identify
             "d": {
                 "token": token,
-                "intents": 55808, // 1<<9 (GUILDS_MESSAGES) | 1<<11 (GUILD_MESSAGE_TYPING) | 1<<12 (DIRECT_MESSAGES) | 1<<14 (DIRECT_MESSAGE_TYPING) | 1<<15 (MESSAGE_CONTENT)
+                "intents": 50364033,
+                "capabilities": 30717,
                 "properties": {
                     "os": "linux",
                     "browser": "vimcord",
@@ -193,6 +194,46 @@ impl GatewayClient {
                             channel_id.to_string(),
                             user_id.to_string(),
                             display_name,
+                        ))
+                        .await;
+                }
+            }
+            "READY_SUPPLEMENTAL" => {
+                let mut statuses = std::collections::HashMap::new();
+                if let Some(guilds) = d["merged_presences"]["guilds"].as_array() {
+                    for guild in guilds {
+                        if let Some(users) = guild.as_array() {
+                            for user in users {
+                                if let (Some(user_id), Some(status)) =
+                                    (user["user_id"].as_str(), user["status"].as_str())
+                                {
+                                    statuses.insert(user_id.to_string(), status.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+                if let Some(friends) = d["merged_presences"]["friends"].as_array() {
+                    for friend in friends {
+                        if let (Some(user_id), Some(status)) =
+                            (friend["user_id"].as_str(), friend["status"].as_str())
+                        {
+                            statuses.insert(user_id.to_string(), status.to_string());
+                        }
+                    }
+                }
+                let _ = action_tx
+                    .send(AppAction::GatewayReadySupplemental(statuses))
+                    .await;
+            }
+            "PRESENCE_UPDATE" => {
+                if let (Some(user_id), Some(status)) =
+                    (d["user"]["id"].as_str(), d["status"].as_str())
+                {
+                    let _ = action_tx
+                        .send(AppAction::GatewayPresenceUpdate(
+                            user_id.to_string(),
+                            status.to_string(),
                         ))
                         .await;
                 }

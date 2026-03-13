@@ -92,8 +92,10 @@ pub enum AppAction {
     ApiUpdateCurrentUser(User),
     GatewayMessageCreate(Message),
     GatewayMessageUpdate(PartialMessage),
-    GatewayMessageDelete(String, String),
-    GatewayTypingStart(String, String, Option<String>),
+    GatewayMessageDelete(String, String), // message_id, channel_id
+    GatewayTypingStart(String, String, Option<String>), // channel_id, user_id, display_name
+    GatewayReadySupplemental(std::collections::HashMap<String, String>), // user_id -> status
+    GatewayPresenceUpdate(String, String), // user_id, status
     TransitionToChat(String),
     TransitionToEditing(String, Message, String, char),
     TransitionToChannels(String),
@@ -147,8 +149,9 @@ pub struct App {
     pub discreet_notifs: bool,
     deleted_message_ids: HashSet<String>,
     last_typing_sent: Option<std::time::Instant>,
-    typing_users: HashMap<String, HashMap<String, std::time::Instant>>,
+    typing_users: HashMap<String, HashMap<String, std::time::Instant>>, // channel_id -> user_id -> timestamp
     user_names: HashMap<String, String>,
+    user_statuses: HashMap<String, String>, // user id -> status string (online, offline, etc.)
     silent_typing: bool,
     is_loading: bool,
     pub active_notifications: HashMap<String, Vec<notify_rust::NotificationHandle>>,
@@ -201,6 +204,7 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
         last_typing_sent: None,
         typing_users: HashMap::new(),
         user_names: HashMap::new(),
+        user_statuses: HashMap::new(),
         silent_typing: config.silent_typing,
         is_loading: false,
         active_notifications: HashMap::new(),

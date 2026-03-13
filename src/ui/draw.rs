@@ -95,6 +95,25 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
             let items: Vec<ListItem> = filtered_dms
                 .iter()
                 .map(|d| {
+                    let mut spans = Vec::new();
+
+                    if d.channel_type == 1 && d.recipients.len() == 1 {
+                        let (status_char, status_color) = match app
+                            .user_statuses
+                            .get(&d.recipients[0].id)
+                            .map(|s| s.as_str())
+                        {
+                            Some("online") => ("●", Color::LightGreen),
+                            Some("idle") => ("🌙", Color::LightYellow),
+                            Some("dnd") => ("●", Color::LightRed),
+                            _ => ("○", Color::DarkGray), // offline/invisible/unknown
+                        };
+                        spans.push(Span::styled(
+                            format!("{} ", status_char),
+                            Style::default().fg(status_color),
+                        ));
+                    }
+
                     let char = match d.channel_type {
                         1 => '',
                         3 => '',
@@ -107,8 +126,12 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                         _ => Color::LightRed,
                     };
 
-                    ListItem::new(format!("{char} {}", d.get_name()))
-                        .style(Style::default().fg(color))
+                    spans.push(Span::styled(
+                        format!("{char} {}", d.get_name()),
+                        Style::default().fg(color),
+                    ));
+
+                    ListItem::new(Line::from(spans))
                 })
                 .collect();
 

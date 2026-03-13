@@ -1184,6 +1184,12 @@ pub async fn handle_keys_events(
                 typers.remove(&msg.author.id);
             }
         }
+        AppAction::GatewayReadySupplemental(statuses) => {
+            state.user_statuses.extend(statuses);
+        }
+        AppAction::GatewayPresenceUpdate(user_id, status) => {
+            state.user_statuses.insert(user_id, status);
+        }
         AppAction::GatewayMessageUpdate(msg) => {
             let mut msgs = state.messages.clone();
             if let Some(pos) = msgs.iter().position(|m| m.id == msg.id) {
