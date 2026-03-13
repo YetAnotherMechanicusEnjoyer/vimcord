@@ -982,18 +982,36 @@ pub async fn handle_keys_events(
             }
 
             if let Some(newest_msg) = new_messages.iter().max_by_key(|m| &m.id) {
-                state
-                    .last_message_ids
-                    .insert(channel_id.clone(), newest_msg.id.clone());
+                // Check if the newest message is newer than what we currently have
+                let should_ack = if let Some(last_id) = state.last_message_ids.get(&channel_id) {
+                    // Message IDs can be compared as u64 safely
+                    let new_id_num = newest_msg.id.parse::<u64>().unwrap_or_default();
+                    let last_id_num = last_id.parse::<u64>().unwrap_or_default();
+                    new_id_num > last_id_num
+                } else {
+                    true
+                };
 
-                let api_client_clone = state.api_client.clone();
-                let channel_id_clone = channel_id.clone();
-                let msg_id_clone = newest_msg.id.clone();
-                tokio::spawn(async move {
-                    let _ = api_client_clone
-                        .ack_message(&channel_id_clone, &msg_id_clone)
-                        .await;
-                });
+                if should_ack {
+                    state
+                        .last_message_ids
+                        .insert(channel_id.clone(), newest_msg.id.clone());
+
+                    let api_client_clone = state.api_client.clone();
+                    let channel_id_clone = channel_id.clone();
+                    let msg_id_clone = newest_msg.id.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = api_client_clone
+                            .ack_message(&channel_id_clone, &msg_id_clone)
+                            .await
+                        {
+                            let _ = crate::logs::print_log(
+                                format!("Failed to ack message: {e}").into(),
+                                crate::logs::LogType::Error,
+                            );
+                        }
+                    });
+                }
             }
 
             // Clear any active desktop notifications for this channel
