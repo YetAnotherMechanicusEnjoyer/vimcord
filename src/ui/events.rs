@@ -1053,7 +1053,17 @@ pub async fn handle_keys_events(
         AppAction::ApiUpdateEmojis(new_emojis) => {
             state.custom_emojis = new_emojis;
         }
-        AppAction::ApiUpdateDMs(new_dms) => {
+        AppAction::ApiUpdateDMs(mut new_dms) => {
+            // Sort DMs by newest last_message_id
+            new_dms.sort_by_key(|dm| {
+                std::cmp::Reverse(
+                    dm.last_message_id
+                        .as_deref()
+                        .unwrap_or("0")
+                        .parse::<u64>()
+                        .unwrap_or(0),
+                )
+            });
             state.dms = new_dms.clone();
 
             // Initialize last_message_ids for all DMs on load and seed username cache
@@ -1156,6 +1166,14 @@ pub async fn handle_keys_events(
                             .push(handle);
                     }
                 }
+
+                // Jump this DM to the top of the list
+                if let Some(pos) = state.dms.iter().position(|dm| dm.id == msg.channel_id) {
+                    let mut dm = state.dms.remove(pos);
+                    dm.last_message_id = Some(msg.id.clone());
+                    state.dms.insert(0, dm);
+                }
+
                 state
                     .last_message_ids
                     .insert(msg.channel_id.clone(), msg.id.clone());
