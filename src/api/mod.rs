@@ -27,6 +27,12 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
+pub enum AnyChannel {
+    Guild(Channel),
+    Direct(DM),
+}
+
+#[derive(Debug, Clone)]
 pub struct ApiClient {
     pub http_client: Client,
     pub auth_token: String,
@@ -102,13 +108,27 @@ impl ApiClient {
         }
     }
 
-    pub async fn get_current_user(&self) -> Result<User, Error> {
-        self.api_request("users/@me", Method::GET, None).await
+    pub async fn get_channel(&self, channel_id: &str) -> Result<AnyChannel, Error> {
+        let json: serde_json::Value = self
+            .api_request(format!("channels/{channel_id}").as_str(), Method::GET, None)
+            .await?;
+
+        let channel_type = json.get("type").and_then(|t| t.as_u64()).unwrap_or(0) as u8;
+
+        match channel_type {
+            1 | 3 => {
+                let dm: DM = serde_json::from_value(json)?;
+                Ok(AnyChannel::Direct(dm))
+            }
+            _ => {
+                let channel: Channel = serde_json::from_value(json)?;
+                Ok(AnyChannel::Guild(channel))
+            }
+        }
     }
 
-    pub async fn get_channel(&self, channel_id: &str) -> Result<Channel, Error> {
-        self.api_request(format!("channels/{channel_id}").as_str(), Method::GET, None)
-            .await
+    pub async fn get_current_user(&self) -> Result<User, Error> {
+        self.api_request("users/@me", Method::GET, None).await
     }
 
     pub async fn get_dms(&self) -> Result<Vec<DM>, Error> {

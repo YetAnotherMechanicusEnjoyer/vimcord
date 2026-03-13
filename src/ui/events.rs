@@ -8,7 +8,7 @@ use tokio::{
 
 use crate::{
     App, AppAction, AppState, InputMode, KeywordAction, Window,
-    api::{Channel, DM, Emoji, Guild, Message},
+    api::{AnyChannel, Channel, DM, Emoji, Guild, Message},
     logs::{LogType, print_log},
     ui::vim,
 };
@@ -430,7 +430,10 @@ async fn input_submit(
                 }
             }
             let channel_name = match state.api_client.get_channel(channel_id.as_str()).await {
-                Ok(c) => c.name,
+                Ok(c) => match c {
+                    AnyChannel::Guild(ch) => ch.name,
+                    AnyChannel::Direct(dm) => dm.get_name(),
+                },
                 Err(e) => {
                     print_log(e, LogType::Error).ok();
                     "<Empty Name>".to_string()
@@ -720,11 +723,16 @@ pub async fn handle_keys_events(
                     tx_action.send(AppAction::TransitionToGuilds).await.ok();
                 }
                 AppState::Chatting(channel_id, _) => {
-                    let channel = match state.api_client.get_channel(&channel_id.clone()).await {
-                        Ok(c) => c,
+                    let channel = match state.api_client.get_channel(channel_id.as_str()).await {
+                        Ok(c) => match c {
+                            AnyChannel::Guild(ch) => ch,
+                            AnyChannel::Direct(_) => {
+                                tx_action.send(AppAction::TransitionToHome).await.ok();
+                                return None;
+                            }
+                        },
                         Err(e) => {
-                            tx_action.send(AppAction::TransitionToHome).await.ok();
-                            state.status_message = format!("{e}");
+                            print_log(e, LogType::Error).ok();
                             return None;
                         }
                     };
@@ -1250,7 +1258,10 @@ pub async fn handle_keys_events(
                 state.saved_input = None;
             }
             let channel_name = match state.api_client.get_channel(channel_id.as_str()).await {
-                Ok(c) => c.name,
+                Ok(c) => match c {
+                    AnyChannel::Guild(ch) => ch.name,
+                    AnyChannel::Direct(dm) => dm.get_name(),
+                },
                 Err(e) => {
                     print_log(e, LogType::Error).ok();
                     "<Empty Name>".to_string()
@@ -1351,7 +1362,10 @@ pub async fn handle_keys_events(
             };
 
             let channel_name = match state.api_client.get_channel(channel_id.as_str()).await {
-                Ok(c) => c.name,
+                Ok(c) => match c {
+                    AnyChannel::Guild(ch) => ch.name,
+                    AnyChannel::Direct(dm) => dm.get_name(),
+                },
                 Err(e) => {
                     print_log(e, LogType::Error).ok();
                     "<Empty Name>".to_string()
