@@ -617,8 +617,10 @@ pub async fn handle_vim_keys(
             }
         }
         ':' => {
-            // In the future, this could enter command mode.
-            // For now, we do nothing to avoid conflict with standard Vim behavior.
+            state.saved_input = Some(state.input.clone());
+            state.input.clear();
+            state.cursor_position = 0;
+            state.mode = InputMode::Command
         }
         _ => {
             if let Some(vim_state) = &mut state.vim_state {

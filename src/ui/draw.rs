@@ -6,7 +6,7 @@ use ratatui::{
 use unicode_width::UnicodeWidthStr;
 
 use crate::{
-    App, AppState,
+    App, AppState, InputMode,
     api::{Channel, DM, Emoji, Guild},
 };
 
@@ -618,11 +618,15 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
     let is_editing = matches!(&app.state, AppState::Editing(_, _, _, _));
     let border_color = if is_editing {
         Color::LightMagenta
+    } else if let InputMode::Command = &app.mode {
+        Color::LightGreen
     } else {
         Color::Reset
     };
     let title_color = if is_editing {
         Color::LightMagenta
+    } else if let InputMode::Command = &app.mode {
+        Color::LightGreen
     } else {
         Color::Yellow
     };
@@ -664,13 +668,16 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
         display_status_message = format!("{} | {}", app.status_message, text);
     }
 
+    let title = if let InputMode::Command = &app.mode {
+        "Command Line".to_string()
+    } else {
+        format!("Input: {}", display_status_message)
+    };
+
     f.render_widget(
         Paragraph::new(app.input.as_str()).block(
             Block::default()
-                .title(Span::styled(
-                    format!("Input: {}", display_status_message),
-                    Style::default().fg(title_color),
-                ))
+                .title(Span::styled(title, Style::default().fg(title_color)))
                 .borders(Borders::ALL)
                 .border_type(BorderType::Double)
                 .border_style(Style::default().fg(border_color)),

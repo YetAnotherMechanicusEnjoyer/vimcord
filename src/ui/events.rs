@@ -133,6 +133,42 @@ async fn input_submit(
     filtered_custom: Vec<&Emoji>,
     total_filtered_emojis: usize,
 ) -> Option<KeywordAction> {
+    if state.vim_mode && state.mode == InputMode::Command {
+        let (cmd, args) = {
+            let mut s = state.input.split(' ');
+            (
+                s.next().unwrap_or_default().to_lowercase(),
+                s.map(|s| s.to_string()).collect::<Vec<String>>(),
+            )
+        };
+
+        state.mode = InputMode::Normal;
+        state.input = state.saved_input.clone().unwrap_or_default();
+        state.saved_input = None;
+        let pos = if state.cursor_position <= state.input.len() && state.cursor_position > 0 {
+            state.cursor_position
+        } else {
+            state.input.len()
+        };
+        if let Some(c) = state.input[..pos].chars().next_back()
+            && c != '\n'
+        {
+            state.cursor_position = state.cursor_position.saturating_sub(c.len_utf8());
+        }
+        if !(state.cursor_position == state.input.len() && state.input.ends_with('\n')) {
+            vim::clamp_cursor(state);
+        }
+        match cmd.as_str() {
+            "quit" | "q" => {
+                return Some(KeywordAction::Break);
+            }
+            "debug" => {
+                print_log(args.join(" ").as_str().into(), LogType::Debug).ok();
+            }
+            _ => {}
+        }
+        return None;
+    }
     match state.state.clone() {
         AppState::Loading(_) => {}
         AppState::Home => match state.selection_index {
@@ -692,8 +728,13 @@ pub async fn handle_keys_events(
         AppAction::InputEscape => {
             // In vim mode, Esc switches from Insert to Normal mode and returns early.
             // In non-vim mode (or vim Normal mode), Esc triggers navigation (handled below).
-            if state.vim_mode && state.mode == InputMode::Insert {
+            if state.vim_mode && state.mode == InputMode::Insert || state.mode == InputMode::Command
+            {
                 state.mode = InputMode::Normal;
+                if state.mode == InputMode::Command {
+                    state.input = state.saved_input.clone().unwrap_or_default();
+                    state.saved_input = None;
+                }
                 let pos = if state.cursor_position <= state.input.len() && state.cursor_position > 0
                 {
                     state.cursor_position
@@ -712,7 +753,7 @@ pub async fn handle_keys_events(
             }
             // Navigation logic: go back to previous screen or quit
             match &state.state {
-                AppState::Home | AppState::Loading(_) => return Some(KeywordAction::Break),
+                AppState::Home | AppState::Loading(_) => {}
                 AppState::SelectingDM => {
                     tx_action.send(AppAction::TransitionToHome).await.ok();
                 }
@@ -787,7 +828,7 @@ pub async fn handle_keys_events(
                     InputMode::Normal => {
                         vim::handle_vim_keys(state, c, tx_action).await;
                     }
-                    InputMode::Insert => {
+                    InputMode::Insert | InputMode::Command => {
                         insert_char_at_cursor(&mut state, tx_action.clone(), c);
                         handle_user_typing(&mut state);
                     }
@@ -824,6 +865,26 @@ pub async fn handle_keys_events(
             if state.vim_mode && state.mode == InputMode::Normal {
                 if let Some(c) = state.input[..state.cursor_position].chars().next_back() {
                     state.cursor_position -= c.len_utf8();
+                }
+                return None;
+            }
+            if state.vim_mode && state.mode == InputMode::Command && state.input.is_empty() {
+                state.mode = InputMode::Normal;
+                state.input = state.saved_input.clone().unwrap_or_default();
+                state.saved_input = None;
+                let pos = if state.cursor_position <= state.input.len() && state.cursor_position > 0
+                {
+                    state.cursor_position
+                } else {
+                    state.input.len()
+                };
+                if let Some(c) = state.input[..pos].chars().next_back()
+                    && c != '\n'
+                {
+                    state.cursor_position = state.cursor_position.saturating_sub(c.len_utf8());
+                }
+                if !(state.cursor_position == state.input.len() && state.input.ends_with('\n')) {
+                    vim::clamp_cursor(&mut state);
                 }
                 return None;
             }
