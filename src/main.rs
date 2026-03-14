@@ -115,6 +115,7 @@ pub enum AppAction {
 pub enum InputMode {
     Normal,
     Insert,
+    Command,
 }
 
 #[derive(Debug)]
@@ -157,6 +158,99 @@ pub struct App {
     pub active_notifications: HashMap<String, Vec<notify_rust::NotificationHandle>>,
 }
 
+impl Default for App {
+    fn default() -> Self {
+        Self {
+            api_client: ApiClient::new(Client::new(), String::new(), DISCORD_BASE_URL.to_string()),
+            state: AppState::Loading(Window::Home),
+            guilds: Vec::new(),
+            channels: Vec::new(),
+            messages: Vec::new(),
+            custom_emojis: Vec::new(),
+            dms: Vec::new(),
+            input: String::new(),
+            saved_input: None,
+            selection_index: 0,
+            status_message: String::new(),
+            terminal_height: 20,
+            terminal_width: 80,
+            emoji_map: Vec::new(),
+            emoji_filter: String::new(),
+            emoji_filter_start: None,
+            emoji_index: 0,
+            chat_scroll_offset: 0,
+            tick_count: 0,
+            context: None,
+            mode: InputMode::Normal,
+            cursor_position: 0,
+            vim_mode: true,
+            vim_state: Some(VimState::default()),
+            current_user: None,
+            last_message_ids: HashMap::new(),
+            discreet_notifs: false,
+            deleted_message_ids: HashSet::new(),
+            last_typing_sent: None,
+            typing_users: HashMap::new(),
+            user_names: HashMap::new(),
+            user_statuses: HashMap::new(),
+            silent_typing: false,
+            is_loading: false,
+            active_notifications: HashMap::new(),
+        }
+    }
+}
+
+impl App {
+    pub fn setup(
+        api_client: ApiClient,
+        emoji_map: Vec<(String, String)>,
+        vim_mode: bool,
+        vim_state: Option<VimState>,
+        discreet_notifs: bool,
+        silent_typing: bool,
+    ) -> Self {
+        Self {
+            api_client,
+            state: AppState::Loading(Window::Home),
+            guilds: Vec::new(),
+            channels: Vec::new(),
+            messages: Vec::new(),
+            custom_emojis: Vec::new(),
+            dms: Vec::new(),
+            input: String::new(),
+            saved_input: None,
+            selection_index: 0,
+            status_message:
+                "Browse either DMs or Servers. Use arrows to navigate, Enter to select & Esc to quit"
+                    .to_string(),
+            terminal_height: 20,
+            terminal_width: 80,
+            emoji_map,
+            emoji_filter: String::new(),
+            emoji_filter_start: None,
+            emoji_index: 0,
+            chat_scroll_offset: 0,
+            tick_count: 0,
+            context: None,
+            mode: InputMode::Normal,
+            cursor_position: 0,
+            vim_mode,
+            vim_state,
+            current_user: None,
+            last_message_ids: HashMap::new(),
+            discreet_notifs,
+            deleted_message_ids: HashSet::new(),
+            last_typing_sent: None,
+            typing_users: HashMap::new(),
+            user_names: HashMap::new(),
+            user_statuses: HashMap::new(),
+            silent_typing,
+            is_loading: false,
+            active_notifications: HashMap::new(),
+        }
+    }
+}
+
 async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -165,50 +259,20 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
     let mut terminal = Terminal::new(backend)?;
 
     let vim_mode = config.vim_mode || env::args().any(|arg| arg == "--vim");
+    let vim_state = if vim_mode {
+        Some(VimState::default())
+    } else {
+        None
+    };
 
-    let app_state = Arc::new(Mutex::new(App {
-        api_client: ApiClient::new(Client::new(), token.clone(), DISCORD_BASE_URL.to_string()),
-        state: AppState::Loading(Window::Home),
-        guilds: Vec::new(),
-        channels: Vec::new(),
-        messages: Vec::new(),
-        custom_emojis: Vec::new(),
-        dms: Vec::new(),
-        input: String::new(),
-        saved_input: None,
-        selection_index: 0,
-        status_message:
-            "Browse either DMs or Servers. Use arrows to navigate, Enter to select & Esc to quit"
-                .to_string(),
-        terminal_height: 20,
-        terminal_width: 80,
-        emoji_map: config.emoji_map,
-        emoji_filter: String::new(),
-        emoji_filter_start: None,
-        emoji_index: 0,
-        chat_scroll_offset: 0,
-        tick_count: 0,
-        context: None,
-        mode: InputMode::Normal,
-        cursor_position: 0,
+    let app_state = Arc::new(Mutex::new(App::setup(
+        ApiClient::new(Client::new(), token.clone(), DISCORD_BASE_URL.to_string()),
+        config.emoji_map,
         vim_mode,
-        vim_state: if vim_mode {
-            Some(VimState::default())
-        } else {
-            None
-        },
-        current_user: None,
-        last_message_ids: HashMap::new(),
-        discreet_notifs: config.discreet_notifs,
-        deleted_message_ids: HashSet::new(),
-        last_typing_sent: None,
-        typing_users: HashMap::new(),
-        user_names: HashMap::new(),
-        user_statuses: HashMap::new(),
-        silent_typing: config.silent_typing,
-        is_loading: false,
-        active_notifications: HashMap::new(),
-    }));
+        vim_state,
+        config.discreet_notifs,
+        config.silent_typing,
+    )));
 
     let (tx_action, mut rx_action) = mpsc::channel::<AppAction>(32);
     let (tx_shutdown, _) = tokio::sync::broadcast::channel::<()>(1);
@@ -337,7 +401,7 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
                     InputMode::Normal => {
                         execute!(io::stdout(), SetCursorStyle::BlinkingBlock).ok();
                     }
-                    InputMode::Insert => {
+                    InputMode::Insert | InputMode::Command => {
                         execute!(io::stdout(), SetCursorStyle::BlinkingBar).ok();
                     }
                 }
