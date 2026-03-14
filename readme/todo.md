@@ -34,7 +34,7 @@ The following features are grouped by **Importance** (Foundation, Critical, High
 2. <details> 
      <summary><sub><s><strong>Mark as Read / Read Receipts</strong> <em>(Difficulty: Easy)</em></s></sub></summary>
      <strong>Description</strong>: Updating the local and remote "last read" state to clear unread notification badges.<br/>
-     <strong>Implementation</strong>: Hitting the `/ack` endpoint for channels when viewed.
+     <strong>Implementation</strong>: Hitting the <code>/ack</code> endpoint for channels when viewed.
     </details>
 3. **Proper Push Notifications** *(Difficulty: Medium) (🔒 Blocked by WebSockets)*
    - **Description**: Replace the current hacky workaround for notifications with reliable, instant desktop push notifications for new messages.
@@ -47,9 +47,11 @@ The following features are grouped by **Importance** (Foundation, Critical, High
 6. **Message Replies** *(Difficulty: Medium)*
    - **Description**: In-line replying to specific messages.
    - **Implementation**: UI interaction to select a message, and adding `message_reference` to the message creation API payload.
-7. **Mentions & Pings** *(Difficulty: Medium)*
-   - **Description**: Highlighting mentions natively (`@username`), alerting the user, and providing autocomplete for users in the input bar.
-   - **Implementation**: Parsing `<@id>` tags in text rendering and querying guild members for autocomplete.
+7. <details>
+     <summary><sub><s><strong>Mentions & Pings</strong> <em>(Difficulty: Medium)</em></s></sub></summary>
+     <strong>Description</strong>: Highlighting mentions natively (<code>@username</code>), alerting the user, and providing autocomplete for users in the input bar.<br/>
+     <strong>Implementation</strong>: Parsing <code><@id></code> tags in text rendering and querying guild members for autocomplete.
+   </details>
 
 ### 2. High Importance (Standard Discord Experience)
 *Features that make Discord unique and are heavily used in daily communication.*
@@ -72,9 +74,11 @@ The following features are grouped by **Importance** (Foundation, Critical, High
 6. **Threads** *(Difficulty: Medium)*
    - **Description**: Viewing thread lists, joining threads, and sending messages within threads.
    - **Implementation**: Threads are conceptually similar to channels but require specific API handling and a nested or distinct UI view mode.
-7. **Vim Command Mode & Quitting** *(Difficulty: Hard)*
-   - **Description**: Stop `Esc` from immediately quitting the entire application. Instead, introduce a true Command Mode where users must type `:q` (or `:quit`) to exit, more closely mirroring actual Vim behavior.
-   - **Implementation**: Intercept `Esc` to ensure it only drops to Normal Mode (or clears input). Add an input buffer for handling `:` commands and parse them accordingly. **Note: This will require a new UI overlay/input mode and will likely significantly overlap and conflict with emoji (`:emoji:`) shortcode handling.**
+7. <details>
+     <summary><sub><s><strong>Vim Command Mode & Quitting</strong> <em>(Difficulty: Hard)</em></s></sub></summary>
+     <strong>Description</strong>: Stop <code>Esc</code> from immediately quitting the entire application. Instead, introduce a true Command Mode where users must type <code>:q</code> (or <code>:quit</code>) to exit, more closely mirroring actual Vim behavior.<br/>
+     <strong>Implementation</strong>: Intercept <code>Esc</code> to ensure it only drops to Normal Mode (or clears input). Add an input buffer for handling <code>:</code> commands and parse them accordingly. <strong>Note: This will require a new UI overlay/input mode and will likely significantly overlap and conflict with emoji (<code>:emoji:</code>) shortcode handling.</strong>
+     </details>
 7. **Embeds & Attachments Viewing** *(Difficulty: Impractical)*
    - **Description**: Displaying rich embeds, links, and text summaries of images/files in the TUI.
    - **Implementation**: Parsing complex embed payloads and formatting them nicely in the terminal. (Full image rendering requires terminal graphics protocols like Sixel).
