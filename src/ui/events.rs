@@ -133,16 +133,9 @@ async fn input_submit(
     filtered_custom: Vec<&Emoji>,
     total_filtered_emojis: usize,
 ) -> Option<KeywordAction> {
-    if state.vim_mode && state.mode == InputMode::Command {
-        let (cmd, args) = {
-            let mut s = state.input.split(' ');
-            (
-                s.next().unwrap_or_default().to_lowercase(),
-                s.map(|s| s.to_string()).collect::<Vec<String>>(),
-            )
-        };
+    if state.vim_mode && (state.mode == InputMode::Command || state.mode == InputMode::Search) {
+        let input = state.input.clone();
 
-        state.mode = InputMode::Normal;
         state.input = state.saved_input.clone().unwrap_or_default();
         state.saved_input = None;
         let pos = if state.cursor_position <= state.input.len() && state.cursor_position > 0 {
@@ -158,15 +151,33 @@ async fn input_submit(
         if !(state.cursor_position == state.input.len() && state.input.ends_with('\n')) {
             vim::clamp_cursor(state);
         }
-        match cmd.as_str() {
-            "quit" | "q" => {
-                return Some(KeywordAction::Break);
+
+        match &state.mode {
+            InputMode::Command => {
+                let (cmd, args) = {
+                    let mut s = input.split(' ');
+                    (
+                        s.next().unwrap_or_default().to_lowercase(),
+                        s.map(|s| s.to_string()).collect::<Vec<String>>(),
+                    )
+                };
+
+                match cmd.as_str() {
+                    "quit" | "q" => {
+                        return Some(KeywordAction::Break);
+                    }
+                    "debug" => {
+                        print_log(args.join(" ").as_str().into(), LogType::Debug).ok();
+                    }
+                    _ => {}
+                }
             }
-            "debug" => {
-                print_log(args.join(" ").as_str().into(), LogType::Debug).ok();
+            InputMode::Search => {
+                state.search_input = input;
             }
             _ => {}
         }
+        state.mode = InputMode::Normal;
         return None;
     }
     match state.state.clone() {
@@ -184,7 +195,7 @@ async fn input_submit(
             _ => {}
         },
         AppState::SelectingDM => {
-            let filter_text = state.input.to_lowercase();
+            let filter_text = state.search_input.to_lowercase();
             let dms: Vec<&DM> = state
                 .dms
                 .iter()
@@ -203,7 +214,6 @@ async fn input_submit(
                 selected_dm.recipients[0].username.clone()
             };
 
-            state.input = String::new();
             state.cursor_position = 0;
             state.status_message = format!("Loading messages for {selected_dm_name}...");
 
@@ -247,7 +257,7 @@ async fn input_submit(
             });
         }
         AppState::SelectingGuild => {
-            let filter_text = state.input.to_lowercase();
+            let filter_text = state.search_input.to_lowercase();
             let guilds: Vec<&Guild> = state
                 .guilds
                 .iter()
@@ -325,7 +335,7 @@ async fn input_submit(
             let permission_context = &state.context;
             let mut text_channels: Vec<&Channel> = Vec::new();
 
-            let filter_text = state.input.to_lowercase();
+            let filter_text = state.search_input.to_lowercase();
             let should_display_channel_content = |c: &Channel| {
                 let is_readable = permission_context
                     .as_ref()
@@ -607,7 +617,7 @@ async fn move_selection(state: &mut MutexGuard<'_, App>, n: i32, total_filtered_
         }
         AppState::SelectingChannel(_, _) => {
             if !state.channels.is_empty() {
-                let filter_text = state.input.to_lowercase();
+                let filter_text = state.search_input.to_lowercase();
                 let permission_context = &state.context;
 
                 let should_display_content = |c: &Channel| {
@@ -728,10 +738,12 @@ pub async fn handle_keys_events(
         AppAction::InputEscape => {
             // In vim mode, Esc switches from Insert to Normal mode and returns early.
             // In non-vim mode (or vim Normal mode), Esc triggers navigation (handled below).
-            if state.vim_mode && state.mode == InputMode::Insert || state.mode == InputMode::Command
+            if state.vim_mode && state.mode == InputMode::Insert
+                || state.mode == InputMode::Command
+                || state.mode == InputMode::Search
             {
                 state.mode = InputMode::Normal;
-                if state.mode == InputMode::Command {
+                if state.mode == InputMode::Command || state.mode == InputMode::Search {
                     state.input = state.saved_input.clone().unwrap_or_default();
                     state.saved_input = None;
                 }
@@ -828,7 +840,7 @@ pub async fn handle_keys_events(
                     InputMode::Normal => {
                         vim::handle_vim_keys(state, c, tx_action).await;
                     }
-                    InputMode::Insert | InputMode::Command => {
+                    InputMode::Insert | InputMode::Command | InputMode::Search => {
                         insert_char_at_cursor(&mut state, tx_action.clone(), c);
                         handle_user_typing(&mut state);
                     }
@@ -868,7 +880,10 @@ pub async fn handle_keys_events(
                 }
                 return None;
             }
-            if state.vim_mode && state.mode == InputMode::Command && state.input.is_empty() {
+            if state.vim_mode
+                && (state.mode == InputMode::Command || state.mode == InputMode::Search)
+                && state.input.is_empty()
+            {
                 state.mode = InputMode::Normal;
                 state.input = state.saved_input.clone().unwrap_or_default();
                 state.saved_input = None;
@@ -1292,6 +1307,7 @@ pub async fn handle_keys_events(
             };
 
             state.input = String::new();
+            state.search_input = String::new();
             state.cursor_position = 0;
             state.state = AppState::SelectingChannel(guild_id.clone(), guild_name);
             state.status_message =
@@ -1330,6 +1346,7 @@ pub async fn handle_keys_events(
             };
 
             state.state = AppState::Chatting(channel_id.clone(), channel_name);
+            state.search_input = String::new();
             state.chat_scroll_offset = 0;
             state.cursor_position = 0;
             state.selection_index = 0;
@@ -1340,6 +1357,7 @@ pub async fn handle_keys_events(
         }
         AppAction::TransitionToGuilds => {
             state.input = String::new();
+            state.search_input = String::new();
             state.cursor_position = 0;
             state.state = AppState::SelectingGuild;
             state.status_message =
@@ -1349,6 +1367,7 @@ pub async fn handle_keys_events(
         }
         AppAction::TransitionToDM => {
             state.input = String::new();
+            state.search_input = String::new();
             state.cursor_position = 0;
             state.state = AppState::SelectingDM;
             state.status_message =
@@ -1446,6 +1465,7 @@ pub async fn handle_keys_events(
         }
         AppAction::TransitionToHome => {
             state.input = String::new();
+            state.search_input = String::new();
             state.cursor_position = 0;
             state.state = AppState::Home;
             state.status_message = "Browse either DMs or Servers. Use arrows to navigate, Enter to select & Esc to quit".to_string();

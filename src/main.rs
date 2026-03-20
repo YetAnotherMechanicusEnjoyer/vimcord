@@ -116,6 +116,7 @@ pub enum InputMode {
     Normal,
     Insert,
     Command,
+    Search,
 }
 
 #[derive(Debug)]
@@ -129,6 +130,7 @@ pub struct App {
     dms: Vec<DM>,
     input: String,
     saved_input: Option<String>,
+    search_input: String,
     selection_index: usize,
     status_message: String,
     terminal_height: usize,
@@ -170,6 +172,7 @@ impl Default for App {
             dms: Vec::new(),
             input: String::new(),
             saved_input: None,
+            search_input: String::new(),
             selection_index: 0,
             status_message: String::new(),
             terminal_height: 20,
@@ -219,6 +222,7 @@ impl App {
             dms: Vec::new(),
             input: String::new(),
             saved_input: None,
+            search_input: String::new(),
             selection_index: 0,
             status_message:
                 "Browse either DMs or Servers. Use arrows to navigate, Enter to select & Esc to quit"
@@ -401,7 +405,7 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
                     InputMode::Normal => {
                         execute!(io::stdout(), SetCursorStyle::BlinkingBlock).ok();
                     }
-                    InputMode::Insert | InputMode::Command => {
+                    InputMode::Insert | InputMode::Command | InputMode::Search => {
                         execute!(io::stdout(), SetCursorStyle::BlinkingBar).ok();
                     }
                 }

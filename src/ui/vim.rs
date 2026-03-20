@@ -620,7 +620,13 @@ pub async fn handle_vim_keys(
             state.saved_input = Some(state.input.clone());
             state.input.clear();
             state.cursor_position = 0;
-            state.mode = InputMode::Command
+            state.mode = InputMode::Command;
+        }
+        '/' => {
+            state.saved_input = Some(state.input.clone());
+            state.input.clear();
+            state.cursor_position = 0;
+            state.mode = InputMode::Search;
         }
         _ => {
             if let Some(vim_state) = &mut state.vim_state {

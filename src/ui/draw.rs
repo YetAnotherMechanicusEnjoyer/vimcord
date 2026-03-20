@@ -84,7 +84,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
             f.render_stateful_widget(list, chunks[0], &mut state);
         }
         AppState::SelectingDM => {
-            let filter_text = app.input.to_lowercase();
+            let filter_text = app.search_input.to_lowercase();
 
             let filtered_dms: Vec<&DM> = app
                 .dms
@@ -156,7 +156,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
             f.render_stateful_widget(list, chunks[0], &mut state);
         }
         AppState::SelectingGuild => {
-            let filter_text = app.input.to_lowercase();
+            let filter_text = app.search_input.to_lowercase();
 
             let filtered_guilds: Vec<&Guild> = app
                 .guilds
@@ -201,7 +201,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
             f.render_stateful_widget(list, chunks[0], &mut state);
         }
         AppState::SelectingChannel(_, guild_name) => {
-            let filter_text = app.input.to_lowercase();
+            let filter_text = app.search_input.to_lowercase();
 
             let permission_context = &app.context;
 
@@ -351,8 +351,18 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                 return;
             }
 
-            let mut messages_reversed_with_index =
-                app.messages.iter().enumerate().collect::<Vec<_>>();
+            let mut messages_reversed_with_index = app
+                .messages
+                .iter()
+                .filter(|m| {
+                    m.content
+                        .clone()
+                        .unwrap_or_default()
+                        .to_lowercase()
+                        .contains(app.search_input.to_lowercase().as_str())
+                })
+                .enumerate()
+                .collect::<Vec<_>>();
             messages_reversed_with_index.reverse(); // Oldest first
 
             let mut final_content: Vec<Line> = Vec::new();
@@ -620,6 +630,8 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
         Color::LightMagenta
     } else if let InputMode::Command = &app.mode {
         Color::LightGreen
+    } else if let InputMode::Search = &app.mode {
+        Color::LightRed
     } else {
         Color::Reset
     };
@@ -627,6 +639,8 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
         Color::LightMagenta
     } else if let InputMode::Command = &app.mode {
         Color::LightGreen
+    } else if let InputMode::Search = &app.mode {
+        Color::LightRed
     } else {
         Color::Yellow
     };
@@ -668,10 +682,10 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
         display_status_message = format!("{} | {}", app.status_message, text);
     }
 
-    let title = if let InputMode::Command = &app.mode {
-        "Command Line".to_string()
-    } else {
-        format!("Input: {}", display_status_message)
+    let title = match &app.mode {
+        InputMode::Command => "Command Line".to_string(),
+        InputMode::Search => "Searching".to_string(),
+        _ => format!("Input: {}", display_status_message),
     };
 
     f.render_widget(
