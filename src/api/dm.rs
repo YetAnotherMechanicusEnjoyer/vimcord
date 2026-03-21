@@ -14,16 +14,27 @@ pub struct DM {
 
 impl DM {
     pub fn get_name(&self) -> String {
-        let users = self
-            .recipients
-            .iter()
-            .map(|u| u.username.clone())
-            .collect::<Vec<String>>()
-            .join(", ");
-        if let Some(name) = self.name.clone() {
-            format!("{name} ({users})")
+        if self.channel_type == 1
+            && let Some(user) = self.recipients.first()
+        {
+            let global_name = user.global_name.clone();
+            if let Some(name) = global_name {
+                format!("{name} ({})", user.username)
+            } else {
+                user.username.clone()
+            }
         } else {
-            users
+            let users = self
+                .recipients
+                .iter()
+                .map(|u| u.global_name.clone().unwrap_or(u.username.clone()))
+                .collect::<Vec<String>>()
+                .join(", ");
+            if let Some(name) = self.name.clone() {
+                format!("{name} ({users})")
+            } else {
+                users
+            }
         }
     }
 }
