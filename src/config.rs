@@ -12,6 +12,7 @@ pub struct Config {
     pub discreet_notifs: bool,
     #[serde(default)]
     pub silent_typing: bool,
+    pub display_username: bool,
     pub emoji_map: Vec<(String, String)>,
 }
 
@@ -35,6 +36,7 @@ impl Default for Config {
             vim_mode: true,
             discreet_notifs: false,
             silent_typing: false,
+            display_username: false,
             emoji_map: Vec::new(),
         }
     }

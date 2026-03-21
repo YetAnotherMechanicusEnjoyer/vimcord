@@ -158,6 +158,7 @@ pub struct App {
     silent_typing: bool,
     is_loading: bool,
     pub active_notifications: HashMap<String, Vec<notify_rust::NotificationHandle>>,
+    display_username: bool,
 }
 
 impl Default for App {
@@ -199,6 +200,7 @@ impl Default for App {
             silent_typing: false,
             is_loading: false,
             active_notifications: HashMap::new(),
+            display_username: false,
         }
     }
 }
@@ -211,6 +213,7 @@ impl App {
         vim_state: Option<VimState>,
         discreet_notifs: bool,
         silent_typing: bool,
+        display_username: bool,
     ) -> Self {
         Self {
             api_client,
@@ -251,6 +254,7 @@ impl App {
             silent_typing,
             is_loading: false,
             active_notifications: HashMap::new(),
+            display_username,
         }
     }
 }
@@ -276,6 +280,7 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
         vim_state,
         config.discreet_notifs,
         config.silent_typing,
+        config.display_username,
     )));
 
     let (tx_action, mut rx_action) = mpsc::channel::<AppAction>(32);

@@ -372,6 +372,16 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                 let is_selected =
                     app.selection_index > 0 && app.selection_index - 1 == original_idx;
 
+                let author = if app.display_username {
+                    message.author.username.clone()
+                } else {
+                    message
+                        .author
+                        .global_name
+                        .clone()
+                        .unwrap_or(message.author.username.clone())
+                };
+
                 let formatted_text = format!(
                     "[{}] {}: {}",
                     message
@@ -389,11 +399,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                             .split('.')
                             .next()
                             .unwrap_or(""),
-                    message
-                        .author
-                        .global_name
-                        .clone()
-                        .unwrap_or(message.author.username.clone()),
+                    author,
                     message.content.as_deref().unwrap_or("(*non-text*)")
                 );
 
@@ -473,14 +479,17 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                     .unwrap_or("")
                     .to_string();
 
-                let author = format!(
-                    " {}: ",
+                let name = if app.display_username {
+                    message.author.username.clone()
+                } else {
                     message
                         .author
                         .global_name
                         .clone()
                         .unwrap_or(message.author.username.clone())
-                );
+                };
+
+                let author = format!(" {name}: ");
 
                 let content = message.map_mentions();
 
