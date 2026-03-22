@@ -18,6 +18,7 @@ pub use message::Message;
 pub use message::PartialMessage;
 pub use user::User;
 
+use crate::api::guild::PartialGuild;
 use crate::{
     Error,
     api::{
@@ -30,6 +31,33 @@ use crate::{
 pub enum AnyChannel {
     Guild(Channel),
     Direct(DM),
+}
+
+impl AnyChannel {
+    pub fn get_id(&self) -> String {
+        match self {
+            Self::Guild(ch) => ch.id.clone(),
+            Self::Direct(dm) => dm.id.clone(),
+        }
+    }
+    pub fn get_channel_type(&self) -> u8 {
+        match self {
+            Self::Guild(ch) => ch.channel_type,
+            Self::Direct(dm) => dm.channel_type,
+        }
+    }
+    pub fn get_name(&self) -> String {
+        match self {
+            Self::Guild(ch) => ch.name.clone(),
+            Self::Direct(dm) => dm.get_name(),
+        }
+    }
+    pub fn get_guild_id(&self) -> Option<String> {
+        match self {
+            Self::Guild(ch) => ch.guild_id.clone(),
+            Self::Direct(_) => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -284,7 +312,7 @@ impl ApiClient {
         .await
     }
 
-    pub async fn get_current_user_guilds(&self) -> Result<Vec<Guild>, Error> {
+    pub async fn get_current_user_guilds(&self) -> Result<Vec<PartialGuild>, Error> {
         self.api_request("/users/@me/guilds", Method::GET, None)
             .await
     }

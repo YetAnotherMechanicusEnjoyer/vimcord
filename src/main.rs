@@ -24,8 +24,8 @@ use tokio::{
 
 use crate::{
     api::{
-        ApiClient, Channel, Emoji, Guild, Message, PartialMessage, User,
-        channel::PermissionContext, dm::DM,
+        AnyChannel, ApiClient, Channel, Emoji, Guild, Message, PartialMessage, User,
+        channel::PermissionContext, dm::DM, guild::PartialGuild,
     },
     logs::{LogType, print_log},
     signals::{restore_terminal, setup_ctrlc_handler},
@@ -53,8 +53,8 @@ pub enum Window {
     Home,
     Guild,
     DM,
-    Channel(String),
-    Chat(String),
+    Channel(Box<Guild>),
+    Chat(Box<AnyChannel>),
 }
 
 #[derive(Debug, Clone)]
@@ -62,10 +62,10 @@ pub enum AppState {
     Home,
     SelectingGuild,
     SelectingDM,
-    SelectingChannel(String, String),
-    Chatting(String, String),
-    EmojiSelection(String, String),
-    Editing(String, String, Box<Message>, String),
+    SelectingChannel(Box<Guild>),
+    Chatting(Box<AnyChannel>),
+    EmojiSelection(Box<AnyChannel>),
+    Editing(Box<AnyChannel>, Box<Message>, String),
     Loading(Window),
 }
 
@@ -86,7 +86,7 @@ pub enum AppAction {
     ApiUpdateMessages(String, Vec<Message>),
     ApiUpdateChannel(Vec<Channel>),
     ApiUpdateEmojis(Vec<Emoji>),
-    ApiUpdateGuilds(Vec<Guild>),
+    ApiUpdateGuilds(Vec<PartialGuild>),
     ApiUpdateDMs(Vec<DM>),
     ApiUpdateContext(Option<PermissionContext>),
     ApiUpdateCurrentUser(User),
@@ -96,9 +96,9 @@ pub enum AppAction {
     GatewayTypingStart(String, String, Option<String>), // channel_id, user_id, display_name
     GatewayReadySupplemental(std::collections::HashMap<String, String>), // user_id -> status
     GatewayPresenceUpdate(String, String), // user_id, status
-    TransitionToChat(String),
-    TransitionToEditing(String, Message, String, char),
-    TransitionToChannels(String),
+    TransitionToChat(Box<AnyChannel>),
+    TransitionToEditing(Box<AnyChannel>, Message, String, char),
+    TransitionToChannels(Box<Guild>),
     TransitionToGuilds,
     TransitionToDM,
     TransitionToHome,
@@ -123,7 +123,8 @@ pub enum InputMode {
 pub struct App {
     api_client: ApiClient,
     state: AppState,
-    guilds: Vec<Guild>,
+    guilds: Vec<PartialGuild>,
+    selected_guild: Option<Guild>,
     channels: Vec<Channel>,
     messages: Vec<Message>,
     custom_emojis: Vec<Emoji>,
@@ -167,6 +168,7 @@ impl Default for App {
             api_client: ApiClient::new(Client::new(), String::new(), DISCORD_BASE_URL.to_string()),
             state: AppState::Loading(Window::Home),
             guilds: Vec::new(),
+            selected_guild: None,
             channels: Vec::new(),
             messages: Vec::new(),
             custom_emojis: Vec::new(),
@@ -219,6 +221,7 @@ impl App {
             api_client,
             state: AppState::Loading(Window::Home),
             guilds: Vec::new(),
+            selected_guild: None,
             channels: Vec::new(),
             messages: Vec::new(),
             custom_emojis: Vec::new(),
@@ -297,12 +300,12 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
         loop {
             tokio::select! {
                 _ = rx_shutdown_ticker.recv() => {
-                    let _ = print_log("Shutdown Program.".into(), LogType::Info);
+                    print_log("Shutdown Program.".into(), LogType::Info).ok();
                     return;
                 }
                 _ = interval.tick() => {
                     if let Err(e) = tx_ticker.send(AppAction::Tick).await {
-                        let _ = print_log(format!("Failed to send tick action: {e}").into(), LogType::Error);
+                        print_log(format!("Failed to send tick action: {e}").into(), LogType::Error).ok();
                         return;
                     }
                 }
@@ -313,7 +316,7 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
     let input_handle: JoinHandle<Result<(), io::Error>> = tokio::spawn(async move {
         let res = handle_input_events(tx_input, rx_shutdown_input).await;
         if let Err(e) = &res {
-            let _ = print_log(format!("Input Error: {e}").into(), LogType::Error);
+            print_log(format!("Input Error: {e}").into(), LogType::Error).ok();
         }
         res
     });
@@ -329,10 +332,11 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
     let gateway_handle: JoinHandle<()> = tokio::spawn(async move {
         let client = crate::api::GatewayClient::new(gateway_token, gateway_tx);
         if let Err(e) = client.connect(rx_shutdown_gateway).await {
-            let _ = print_log(
+            print_log(
                 format!("Gateway connection failed: {e}").into(),
                 LogType::Error,
-            );
+            )
+            .ok();
         }
     });
 
@@ -346,10 +350,11 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
         match api_client_clone.get_current_user().await {
             Ok(user) => {
                 if let Err(e) = tx_api.send(AppAction::ApiUpdateCurrentUser(user)).await {
-                    let _ = print_log(
+                    print_log(
                         format!("Failed to send current user update action: {e}").into(),
                         LogType::Error,
-                    );
+                    )
+                    .ok();
                 }
             }
             Err(e) => {
@@ -361,14 +366,20 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
         match api_client_clone.get_current_user_guilds().await {
             Ok(guilds) => {
                 if let Err(e) = tx_api.send(AppAction::ApiUpdateGuilds(guilds)).await {
-                    let _ = print_log(
+                    print_log(
                         format!("Failed to send guild update action: {e}").into(),
                         LogType::Error,
-                    );
+                    )
+                    .ok();
                 }
             }
             Err(e) => {
                 let mut state = api_state.lock().await;
+                print_log(
+                    format!("Failed to get user guilds action: {e}").into(),
+                    LogType::Error,
+                )
+                .ok();
                 state.status_message = format!("Failed to load servers. {e}");
             }
         }
@@ -376,10 +387,11 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
         match api_client_clone.get_dms().await {
             Ok(dms) => {
                 if let Err(e) = tx_api.send(AppAction::ApiUpdateDMs(dms)).await {
-                    let _ = print_log(
+                    print_log(
                         format!("Failed to send DM update action: {e}").into(),
                         LogType::Error,
-                    );
+                    )
+                    .ok();
                 }
             }
             Err(e) => {
@@ -391,7 +403,7 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
         tx_api.send(AppAction::EndLoading).await.ok();
 
         // Wait for shutdown now since HTTP polling is removed
-        let _ = rx_shutdown_api.recv().await;
+        rx_shutdown_api.recv().await.ok();
     });
 
     loop {
@@ -429,7 +441,7 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
 
     drop(rx_action);
 
-    let _ = tx_shutdown.send(());
+    tx_shutdown.send(()).ok();
 
     let _ = tokio::join!(input_handle, api_handle, ticker_handle, gateway_handle);
 
@@ -444,7 +456,7 @@ async fn main() -> Result<(), Error> {
     let token: String = env::var(ENV_TOKEN).unwrap_or_else(|_| {
         let msg = "Env Error: DISCORD_TOKEN variable is missing.";
         eprintln!("{msg}");
-        let _ = print_log(msg.into(), LogType::Error);
+        print_log(msg.into(), LogType::Error).ok();
         process::exit(1);
     });
 

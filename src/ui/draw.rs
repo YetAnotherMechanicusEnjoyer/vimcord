@@ -7,7 +7,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::{
     App, AppState, InputMode,
-    api::{Channel, DM, Emoji, Guild},
+    api::{Channel, DM, Emoji, guild::PartialGuild},
 };
 
 pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
@@ -158,7 +158,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
         AppState::SelectingGuild => {
             let filter_text = app.search_input.to_lowercase();
 
-            let filtered_guilds: Vec<&Guild> = app
+            let filtered_guilds: Vec<&PartialGuild> = app
                 .guilds
                 .iter()
                 .filter(|g| g.name.to_lowercase().contains(&filter_text))
@@ -200,7 +200,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
             f.render_widget(Clear, chunks[0]);
             f.render_stateful_widget(list, chunks[0], &mut state);
         }
-        AppState::SelectingChannel(_, guild_name) => {
+        AppState::SelectingChannel(guild) => {
             let filter_text = app.search_input.to_lowercase();
 
             let permission_context = &app.context;
@@ -325,7 +325,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
 
             let title = format!(
                 "Channels for Guild: {} | Channels found: {} | Actual index: {}",
-                guild_name,
+                guild.name,
                 num_filtered.saturating_sub(1),
                 app.selection_index
             );
@@ -344,9 +344,9 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
             f.render_widget(Clear, chunks[0]);
             f.render_stateful_widget(list, chunks[0], &mut state);
         }
-        AppState::Chatting(_, channel_name)
-        | AppState::EmojiSelection(_, channel_name)
-        | AppState::Editing(_, channel_name, _, _) => {
+        AppState::Chatting(channel)
+        | AppState::EmojiSelection(channel)
+        | AppState::Editing(channel, _, _) => {
             if max_width == 0 {
                 return;
             }
@@ -491,7 +491,12 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
 
                 let author = format!(" {name}: ");
 
-                let content = message.map_mentions();
+                let content;
+                if let Some(guild) = app.selected_guild.clone() {
+                    content = message.map_mentions(Some(guild));
+                } else {
+                    content = message.map_mentions(None);
+                }
 
                 let content_lines: Vec<&str> = content.split('\n').collect();
 
@@ -547,7 +552,10 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                 app.chat_scroll_offset = total_visual_height.saturating_sub(max_height);
             }
 
-            let title = format!("vimcord Client - Chatting in channel - {}", channel_name);
+            let title = format!(
+                "vimcord Client - Chatting in channel - {}",
+                channel.get_name()
+            );
 
             let paragraph = Paragraph::new(final_content)
                 .block(
@@ -564,7 +572,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
         }
     };
 
-    if let AppState::EmojiSelection(_, _) = &app.state {
+    if let AppState::EmojiSelection(_) = &app.state {
         let input_area = chunks[1];
         let emoji_popup_height = 8;
 
@@ -634,7 +642,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
         }
     }
 
-    let is_editing = matches!(&app.state, AppState::Editing(_, _, _, _));
+    let is_editing = matches!(&app.state, AppState::Editing(_, _, _));
     let border_color = if is_editing {
         Color::LightMagenta
     } else if let InputMode::Command = &app.mode {
@@ -657,14 +665,14 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
     let mut display_status_message = app.status_message.clone();
 
     let active_channel_id = match &app.state {
-        AppState::Chatting(id, _) => Some(id),
-        AppState::EmojiSelection(id, _) => Some(id),
-        AppState::Editing(id, _, _, _) => Some(id),
+        AppState::Chatting(channel) => Some(channel.get_id()),
+        AppState::EmojiSelection(channel) => Some(channel.get_id()),
+        AppState::Editing(channel, _, _) => Some(channel.get_id()),
         _ => None,
     };
 
     if let Some(channel_id) = active_channel_id
-        && let Some(typers) = app.typing_users.get(channel_id)
+        && let Some(typers) = app.typing_users.get(&channel_id)
         && !typers.is_empty()
     {
         let mut typers_names = Vec::new();

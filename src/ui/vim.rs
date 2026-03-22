@@ -245,7 +245,7 @@ pub async fn handle_vim_keys(
     // or when mutating state later.
     let current_operator = state.vim_state.as_ref().unwrap().operator;
 
-    if let AppState::Chatting(channel_id, _) = &state.state
+    if let AppState::Chatting(channel) = &state.state
         && state.selection_index > 0
         && ['i', 'I', 'a', 'A'].contains(&c)
     {
@@ -259,7 +259,7 @@ pub async fn handle_vim_keys(
         {
             tx_action
                 .send(AppAction::TransitionToEditing(
-                    channel_id.clone(),
+                    channel.clone(),
                     msg.clone(),
                     msg.content.clone().unwrap_or_default(),
                     c,
@@ -297,7 +297,7 @@ pub async fn handle_vim_keys(
             state.mode = InputMode::Insert;
         }
         'O' => {
-            if let AppState::Chatting(_, _) = &state.state
+            if let AppState::Chatting(_) = &state.state
                 && state.selection_index > 0
             {
                 return;
@@ -311,7 +311,7 @@ pub async fn handle_vim_keys(
             state.mode = InputMode::Insert;
         }
         'o' => {
-            if let AppState::Chatting(_, _) = &state.state
+            if let AppState::Chatting(_) = &state.state
                 && state.selection_index > 0
             {
                 return;
@@ -332,7 +332,7 @@ pub async fn handle_vim_keys(
             state.mode = InputMode::Insert;
         }
         'j' => {
-            if let AppState::Chatting(_, _) = &state.state {
+            if let AppState::Chatting(_) = &state.state {
                 if state.selection_index > 0 {
                     state.selection_index -= 1;
                 } else {
@@ -379,7 +379,7 @@ pub async fn handle_vim_keys(
             }
         }
         'k' => {
-            if let AppState::Chatting(channel_id, _) = &state.state {
+            if let AppState::Chatting(channel) = &state.state {
                 if state.selection_index != 0 {
                     if state.selection_index < state.messages.len() {
                         state.selection_index += 1;
@@ -393,7 +393,7 @@ pub async fn handle_vim_keys(
                             let older_msgs = state
                                 .api_client
                                 .get_channel_messages(
-                                    &channel_id.clone(),
+                                    &channel.get_id().clone(),
                                     None,
                                     Some(oldest.id.clone()),
                                     None,
@@ -484,7 +484,7 @@ pub async fn handle_vim_keys(
             }
         }
         'w' => {
-            if let AppState::Chatting(_, _) = &state.state
+            if let AppState::Chatting(_) = &state.state
                 && state.selection_index > 0
             {
                 return;
@@ -502,7 +502,7 @@ pub async fn handle_vim_keys(
             }
         }
         'b' => {
-            if let AppState::Chatting(_, _) = &state.state
+            if let AppState::Chatting(_) = &state.state
                 && state.selection_index > 0
             {
                 return;
@@ -519,7 +519,7 @@ pub async fn handle_vim_keys(
             }
         }
         'd' => {
-            if let AppState::Chatting(channel_id, _) = &state.state
+            if let AppState::Chatting(channel) = &state.state
                 && state.selection_index > 0
             {
                 if let Some(VimOperator::Delete) = current_operator {
@@ -534,7 +534,7 @@ pub async fn handle_vim_keys(
                             .is_some_and(|user| user.id == msg.author.id)
                         {
                             let msg_id = msg.id.clone();
-                            let ch_id = channel_id.clone();
+                            let ch_id = channel.get_id().clone();
 
                             tx_action
                                 .send(AppAction::ApiDeleteMessage(ch_id, msg_id))
@@ -592,7 +592,7 @@ pub async fn handle_vim_keys(
         }
 
         'x' => {
-            if let AppState::Chatting(_, _) = &state.state
+            if let AppState::Chatting(_) = &state.state
                 && state.selection_index > 0
             {
                 return;
@@ -608,7 +608,7 @@ pub async fn handle_vim_keys(
             }
         }
         'G' => {
-            if let AppState::Chatting(_, _) = &state.state {
+            if let AppState::Chatting(_) = &state.state {
                 state.selection_index = 0;
 
                 let len = state.input.len();
