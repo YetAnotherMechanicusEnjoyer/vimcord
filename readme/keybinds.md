@@ -47,4 +47,4 @@ When Vim mode is enabled, typing text is done in **Insert Mode** while navigatio
 | Keybind | Action |
 |---------|--------|
 | `:` | Enter Command Mode (e.g., `:quit`, `:debug`) |
-| `/` | Enter Search Mode (e.g., for channels, DMs, or guilds) |
+| `/` | Enter Search Mode (global filter for channels, DMs, guilds, and messages) |
