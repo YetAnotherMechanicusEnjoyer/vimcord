@@ -9,7 +9,7 @@
 | `Enter` | Submit message or select an item |
 | `Up` / `Down` | Navigate lists of items (guilds, channels, DMs) |
 | `Left` / `Right` | Move text cursor |
-| `Backspace` / `Delete`| Delete characters |
+| `Backspace` / `Delete` | Delete characters (Insert mode); in Vim Normal mode, Backspace moves cursor left |
 
 ## Vim Mode Keybinds
 
