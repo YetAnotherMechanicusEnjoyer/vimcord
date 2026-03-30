@@ -798,7 +798,7 @@ pub async fn handle_keys_events(
                         Ok(c) => match c {
                             AnyChannel::Guild(ch) => ch,
                             AnyChannel::Direct(_) => {
-                                tx_action.send(AppAction::TransitionToHome).await.ok();
+                                tx_action.send(AppAction::TransitionToDM).await.ok();
                                 return None;
                             }
                         },

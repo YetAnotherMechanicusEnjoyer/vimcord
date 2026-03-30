@@ -44,6 +44,8 @@ When Vim mode is enabled, typing text is done in **Insert Mode** while navigatio
 
 ### Command & Search
 
+For a full list of available Vim-style commands, please refer to the [Commands Documentation](commands.md).
+
 | Keybind | Action |
 |---------|--------|
 | `:` | Enter Command Mode (e.g., `:quit`, `:debug`) |
