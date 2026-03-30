@@ -79,9 +79,18 @@ The following features are grouped by **Importance** (Foundation, Critical, High
      <strong>Description</strong>: Stop <code>Esc</code> from immediately quitting the entire application. Instead, introduce a true Command Mode where users must type <code>:q</code> (or <code>:quit</code>) to exit, more closely mirroring actual Vim behavior.<br/>
      <strong>Implementation</strong>: Intercept <code>Esc</code> to ensure it only drops to Normal Mode (or clears input). Add an input buffer for handling <code>:</code> commands and parse them accordingly. <strong>Note: This will require a new UI overlay/input mode and will likely significantly overlap and conflict with emoji (<code>:emoji:</code>) shortcode handling.</strong>
      </details>
-7. **Embeds & Attachments Viewing** *(Difficulty: Impractical)*
+8. **Embeds & Attachments Viewing** *(Difficulty: Impractical)*
    - **Description**: Displaying rich embeds, links, and text summaries of images/files in the TUI.
    - **Implementation**: Parsing complex embed payloads and formatting them nicely in the terminal. (Full image rendering requires terminal graphics protocols like Sixel).
+9. **Visual Mode** *(Difficulty: Medium)*
+   - **Description**: Support for selecting text in the input bar similar to Vim's visual mode.
+   - **Implementation**: Creating a visual UI state to track and highlight selected regions of text.
+10. **Yank & Delete to Yank Buffer** *(Difficulty: Medium)*
+    - **Description**: Deleting text (`d`, `x`, etc.) should place the text into a yank buffer, and `y` should yank text.
+    - **Implementation**: Internally representing yank registers and caching strings when text is deleted or yanked.
+11. **Paste** *(Difficulty: Medium)*
+    - **Description**: Allow pasting text from the yank buffer into the input bar using `p` or `P`.
+    - **Implementation**: Inserting the contents of the internal yank buffer at the current cursor position.
 
 ### 3. Medium Importance (Organization & Power User Tools)
 *Features geared towards server management, moderation, and advanced usage.*
