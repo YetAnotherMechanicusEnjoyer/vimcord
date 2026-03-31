@@ -1,11 +1,13 @@
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use tokio::sync::mpsc::Sender;
+use tokio::sync::{Mutex, mpsc};
 use tokio::time::{self, Duration};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message as WsMessage};
 
+use crate::Error;
+use crate::api::guild::GuildMember;
 use crate::logs::{LogType, print_log};
 use crate::{AppAction, api::Message as DiscordMessage};
 
@@ -25,18 +27,37 @@ struct GatewayEvent {
     t: Option<String>,
 }
 
+#[derive(Debug, Clone)]
 pub struct GatewayClient {
     token: String,
     action_tx: Sender<AppAction>,
     sequence: Arc<Mutex<Option<u64>>>,
+    outbound_tx: Sender<serde_json::Value>,
+    outbound_rx: Arc<Mutex<mpsc::Receiver<serde_json::Value>>>,
+}
+
+impl Default for GatewayClient {
+    fn default() -> Self {
+        let (tx, rx) = mpsc::channel(32);
+        Self {
+            token: String::new(),
+            action_tx: mpsc::channel::<AppAction>(32).0,
+            sequence: Arc::new(Mutex::new(None)),
+            outbound_tx: tx,
+            outbound_rx: Arc::new(Mutex::new(rx)),
+        }
+    }
 }
 
 impl GatewayClient {
     pub fn new(token: String, action_tx: Sender<AppAction>) -> Self {
+        let (tx, rx) = mpsc::channel(32);
         Self {
             token,
             action_tx,
             sequence: Arc::new(Mutex::new(None)),
+            outbound_tx: tx,
+            outbound_rx: Arc::new(Mutex::new(rx)),
         }
     }
 
@@ -73,7 +94,7 @@ impl GatewayClient {
             "op": 2, // Identify
             "d": {
                 "token": token,
-                "intents": 50364033,
+                "intents": 50364035,
                 "capabilities": 30717,
                 "properties": {
                     "os": "linux",
@@ -111,11 +132,20 @@ impl GatewayClient {
             }
         });
 
+        let write_for_outbound = Arc::clone(&write);
+        let mut rx_outbound = self.outbound_rx.lock().await;
+
         // Listen for events
         loop {
             tokio::select! {
                 _ = rx_shutdown.recv() => {
                     break;
+                }
+                Some(outbound_msg) = rx_outbound.recv() => {
+                    let mut w = write_for_outbound.lock().await;
+                    if let Err(e) = w.send(WsMessage::Text(serde_json::to_string(&outbound_msg).unwrap().into())).await {
+                        let _ = print_log(format!("Failed to send outbound message: {}", e).into(), LogType::Error);
+                    }
                 }
                 msg_result = read.next() => {
                     match msg_result {
@@ -238,9 +268,67 @@ impl GatewayClient {
                         .await;
                 }
             }
-            _ => {
-                // Ignore other events
+            "GUILD_MEMBERS_CHUNK" => {
+                print_log("GUILD_MEMBERS_CHUNK event received".into(), LogType::Debug).ok();
+                if let Ok(not_found) = serde_json::from_value::<Vec<String>>(d["not_found"].clone())
+                {
+                    print_log(
+                        format!("Error in GUILD_MEMBERS_CHUNK event: not found: {not_found:?}")
+                            .into(),
+                        LogType::Error,
+                    )
+                    .ok();
+                }
+                if let (Some(guild_id), Ok(members), Some(chunk_index), Some(chunk_count)) = (
+                    d["guild_id"].as_str(),
+                    serde_json::from_value::<Vec<GuildMember>>(d["members"].clone()),
+                    d["chunk_index"].as_str(),
+                    d["chunk_count"].as_str(),
+                ) {
+                    print_log(
+                        format!("GUILD_MEMBERS_CHUNK event parsed: {members:?}").into(),
+                        LogType::Debug,
+                    )
+                    .ok();
+                    action_tx
+                        .send(AppAction::GatewayGuildMembersChunk(
+                            guild_id.to_string(),
+                            members.clone(),
+                            chunk_index.to_string(),
+                            chunk_count.to_string(),
+                        ))
+                        .await
+                        .ok();
+                }
+            }
+            e => {
+                print_log(
+                    format!("Unhandled event received: {e}").into(),
+                    LogType::Info,
+                )
+                .ok();
             }
         }
+    }
+
+    pub async fn request_guild_members(&self, guild_id: &str) -> Result<(), Error> {
+        let request = serde_json::json!({
+            "op": 8,
+            "d": {
+                "guild_id": guild_id,
+                "query": "",
+                "limit": 0,
+            }
+        });
+
+        if let Err(e) = self.outbound_tx.send(request).await {
+            print_log(
+                format!("Error sending request guild members: {e}").into(),
+                LogType::Error,
+            )
+            .ok();
+        }
+
+        Ok(())
     }
 }
