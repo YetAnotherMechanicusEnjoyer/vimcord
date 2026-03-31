@@ -269,7 +269,6 @@ impl GatewayClient {
                 }
             }
             "GUILD_MEMBERS_CHUNK" => {
-                print_log("GUILD_MEMBERS_CHUNK event received".into(), LogType::Debug).ok();
                 if let Ok(not_found) = serde_json::from_value::<Vec<String>>(d["not_found"].clone())
                 {
                     print_log(
@@ -282,14 +281,9 @@ impl GatewayClient {
                 if let (Some(guild_id), Ok(members), Some(chunk_index), Some(chunk_count)) = (
                     d["guild_id"].as_str(),
                     serde_json::from_value::<Vec<GuildMember>>(d["members"].clone()),
-                    d["chunk_index"].as_str(),
-                    d["chunk_count"].as_str(),
+                    d["chunk_index"].as_number(),
+                    d["chunk_count"].as_number(),
                 ) {
-                    print_log(
-                        format!("GUILD_MEMBERS_CHUNK event parsed: {members:?}").into(),
-                        LogType::Debug,
-                    )
-                    .ok();
                     action_tx
                         .send(AppAction::GatewayGuildMembersChunk(
                             guild_id.to_string(),
