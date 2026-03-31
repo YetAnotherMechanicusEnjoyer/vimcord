@@ -14,18 +14,17 @@ use crossterm::{
 use ratatui::{Terminal, prelude::CrosstermBackend};
 use reqwest::Client;
 use tokio::{
-    sync::{
-        Mutex,
-        mpsc::{self},
-    },
+    sync::{Mutex, mpsc},
     task::JoinHandle,
-    time::{self},
+    time,
 };
 
 use crate::{
     api::{
-        AnyChannel, ApiClient, Channel, Emoji, Guild, Message, PartialMessage, User,
-        channel::PermissionContext, dm::DM, guild::PartialGuild,
+        AnyChannel, ApiClient, Channel, Emoji, GatewayClient, Guild, Message, PartialMessage, User,
+        channel::PermissionContext,
+        dm::DM,
+        guild::{GuildMember, PartialGuild},
     },
     logs::{LogType, print_log},
     signals::{restore_terminal, setup_ctrlc_handler},
@@ -94,8 +93,9 @@ pub enum AppAction {
     GatewayMessageUpdate(PartialMessage),
     GatewayMessageDelete(String, String), // message_id, channel_id
     GatewayTypingStart(String, String, Option<String>), // channel_id, user_id, display_name
+    GatewayGuildMembersChunk(String, Vec<GuildMember>, String, String),
     GatewayReadySupplemental(std::collections::HashMap<String, String>), // user_id -> status
-    GatewayPresenceUpdate(String, String), // user_id, status
+    GatewayPresenceUpdate(String, String),                               // user_id, status
     TransitionToChat(Box<AnyChannel>),
     TransitionToEditing(Box<AnyChannel>, Message, String, char),
     TransitionToChannels(Box<Guild>),
@@ -122,9 +122,11 @@ pub enum InputMode {
 #[derive(Debug)]
 pub struct App {
     api_client: ApiClient,
+    gateway_client: GatewayClient,
     state: AppState,
     guilds: Vec<PartialGuild>,
     selected_guild: Option<Guild>,
+    guild_members: Vec<GuildMember>,
     channels: Vec<Channel>,
     messages: Vec<Message>,
     custom_emojis: Vec<Emoji>,
@@ -162,13 +164,26 @@ pub struct App {
     display_username: bool,
 }
 
+pub struct Setup {
+    api_client: ApiClient,
+    gateway_client: GatewayClient,
+    emoji_map: Vec<(String, String)>,
+    vim_mode: bool,
+    vim_state: Option<VimState>,
+    discreet_notifs: bool,
+    silent_typing: bool,
+    display_username: bool,
+}
+
 impl Default for App {
     fn default() -> Self {
         Self {
             api_client: ApiClient::new(Client::new(), String::new(), DISCORD_BASE_URL.to_string()),
+            gateway_client: GatewayClient::default(),
             state: AppState::Loading(Window::Home),
             guilds: Vec::new(),
             selected_guild: None,
+            guild_members: Vec::new(),
             channels: Vec::new(),
             messages: Vec::new(),
             custom_emojis: Vec::new(),
@@ -208,20 +223,34 @@ impl Default for App {
 }
 
 impl App {
-    pub fn setup(
-        api_client: ApiClient,
-        emoji_map: Vec<(String, String)>,
-        vim_mode: bool,
-        vim_state: Option<VimState>,
-        discreet_notifs: bool,
-        silent_typing: bool,
-        display_username: bool,
-    ) -> Self {
+    pub fn setup(values: Setup) -> Self {
+        let (
+            api_client,
+            gateway_client,
+            emoji_map,
+            vim_mode,
+            vim_state,
+            discreet_notifs,
+            silent_typing,
+            display_username,
+        ) = (
+            values.api_client,
+            values.gateway_client,
+            values.emoji_map,
+            values.vim_mode,
+            values.vim_state,
+            values.discreet_notifs,
+            values.silent_typing,
+            values.display_username,
+        );
+
         Self {
             api_client,
+            gateway_client,
             state: AppState::Loading(Window::Home),
             guilds: Vec::new(),
             selected_guild: None,
+            guild_members: Vec::new(),
             channels: Vec::new(),
             messages: Vec::new(),
             custom_emojis: Vec::new(),
@@ -276,18 +305,23 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
         None
     };
 
-    let app_state = Arc::new(Mutex::new(App::setup(
-        ApiClient::new(Client::new(), token.clone(), DISCORD_BASE_URL.to_string()),
-        config.emoji_map,
-        vim_mode,
-        vim_state,
-        config.discreet_notifs,
-        config.silent_typing,
-        config.display_username,
-    )));
-
     let (tx_action, mut rx_action) = mpsc::channel::<AppAction>(32);
     let (tx_shutdown, _) = tokio::sync::broadcast::channel::<()>(1);
+
+    let gateway_token = token.clone();
+    let gateway_tx = tx_action.clone();
+    let gateway_client = GatewayClient::new(gateway_token, gateway_tx);
+
+    let app_state = Arc::new(Mutex::new(App::setup(Setup {
+        api_client: ApiClient::new(Client::new(), token.clone(), DISCORD_BASE_URL.to_string()),
+        gateway_client,
+        emoji_map: config.emoji_map,
+        vim_mode,
+        vim_state,
+        discreet_notifs: config.discreet_notifs,
+        silent_typing: config.silent_typing,
+        display_username: config.display_username,
+    })));
 
     let tx_input = tx_action.clone();
     let rx_shutdown_input = tx_shutdown.subscribe();
@@ -327,10 +361,8 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
 
     let rx_shutdown_gateway = tx_shutdown.subscribe();
 
-    let gateway_token = token.clone();
-    let gateway_tx = tx_action.clone();
+    let client = api_state.lock().await.gateway_client.clone();
     let gateway_handle: JoinHandle<()> = tokio::spawn(async move {
-        let client = crate::api::GatewayClient::new(gateway_token, gateway_tx);
         if let Err(e) = client.connect(rx_shutdown_gateway).await {
             print_log(
                 format!("Gateway connection failed: {e}").into(),

@@ -283,6 +283,18 @@ async fn input_submit(
                 }
             };
 
+            if let Err(e) = state
+                .gateway_client
+                .request_guild_members(selected_partial_guild.id.as_str())
+                .await
+            {
+                print_log(
+                    format!("Error requesting guild members: {e}").into(),
+                    LogType::Error,
+                )
+                .ok();
+            }
+
             state.selected_guild = Some(selected_guild.clone());
 
             let tx_clone = tx_action.clone();
@@ -570,9 +582,50 @@ async fn input_submit(
             if let Some((channel_id_clone, content)) = message_data {
                 let api_client_clone = state.api_client.clone();
 
+                let mut members = std::collections::HashSet::new();
+                let tmp = content.clone();
+                let mut temp_content = tmp.as_str();
+
+                while let Some(start_idx) = temp_content.find("@") {
+                    let after_prefix = &temp_content[start_idx + 1..];
+                    if let Some(end_idx) = after_prefix.find(' ') {
+                        let member = &after_prefix[..end_idx];
+                        if member.chars().all(|c| c.is_ascii_alphanumeric()) {
+                            members.insert(member.to_string());
+                        }
+                        temp_content = &after_prefix[end_idx..];
+                    } else {
+                        let end_idx = temp_content.len().saturating_sub(1);
+                        let member = &after_prefix[..end_idx];
+                        if member.chars().all(|c| c.is_ascii_alphanumeric()) {
+                            members.insert(member.to_string());
+                        }
+                        break;
+                    }
+                }
+
+                let mut map_usernames: std::collections::HashMap<String, String> =
+                    std::collections::HashMap::new();
+                for member in members {
+                    if let Some(guild_member) = state
+                        .guild_members
+                        .iter()
+                        .find(|gm| gm.user.username == member)
+                    {
+                        map_usernames.insert(member.clone(), guild_member.user.id.clone());
+                    }
+                }
+
+                let mut final_content = content.clone();
+                for (name, id) in map_usernames {
+                    let pattern = format!("@{name}");
+                    let replacement = format!("<@{id}>");
+                    final_content = final_content.replace(&pattern, &replacement);
+                }
+
                 tokio::spawn(async move {
                     match api_client_clone
-                        .create_message(&channel_id_clone, Some(content), false)
+                        .create_message(&channel_id_clone, Some(final_content), false)
                         .await
                     {
                         Ok(_) => {}
@@ -786,6 +839,7 @@ pub async fn handle_keys_events(
                     tx_action.send(AppAction::TransitionToHome).await.ok();
                 }
                 AppState::SelectingChannel(_) => {
+                    state.guild_members = Vec::new();
                     state.selected_guild = None;
                     tx_action.send(AppAction::TransitionToGuilds).await.ok();
                 }
@@ -1213,7 +1267,6 @@ pub async fn handle_keys_events(
                 state.user_names.insert(user_id, name);
             }
         }
-
         AppAction::GatewayMessageCreate(msg) => {
             let active_channel_id = if let AppState::Chatting(channel) = &state.state {
                 Some(channel.get_id().clone())
@@ -1296,6 +1349,12 @@ pub async fn handle_keys_events(
         }
         AppAction::GatewayPresenceUpdate(user_id, status) => {
             state.user_statuses.insert(user_id, status);
+        }
+        AppAction::GatewayGuildMembersChunk(_, members, _, chunk_count) => {
+            if chunk_count.parse::<usize>().unwrap_or_default() == 0 {
+                state.guild_members = Vec::new();
+            }
+            state.guild_members.extend(members);
         }
         AppAction::GatewayMessageUpdate(msg) => {
             let mut msgs = state.messages.clone();
