@@ -88,7 +88,10 @@ impl GatewayClient {
                     "referring_domain_current": "",
                     "release_channel": "stable",
                     "client_build_number": 332615,
-                    "client_event_source": null
+                    "client_event_source": null,
+                    "has_client_mods": false,
+                    "client_launch_id": uuid::Uuid::new_v4().to_string(),
+                    "client_heartbeat_session_id": uuid::Uuid::new_v4().to_string()
                 },
                 "presence": {
                     "status": "online",
