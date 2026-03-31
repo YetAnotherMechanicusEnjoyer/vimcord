@@ -5,6 +5,7 @@ use crate::api::{User, channel::Role};
 #[derive(Debug, Deserialize, Clone)]
 pub struct GuildMember {
     pub user: User,
+    pub nick: Option<String>,
     pub roles: Vec<String>,
 }
 
