@@ -26,7 +26,7 @@ use crate::{
         dm::DM,
         guild::{GuildMember, PartialGuild},
     },
-    logs::{LogType, print_log},
+    logs::{LogType, print_log, read_log},
     signals::{restore_terminal, setup_ctrlc_handler},
     ui::{draw_ui, handle_input_events, handle_keys_events, vim::VimState},
 };
@@ -66,6 +66,7 @@ pub enum AppState {
     EmojiSelection(Box<AnyChannel>),
     Editing(Box<AnyChannel>, Box<Message>, String),
     Loading(Window),
+    Logs(Window),
 }
 
 #[derive(Debug)]
@@ -103,8 +104,10 @@ pub enum AppAction {
     TransitionToDM,
     TransitionToHome,
     TransitionToLoading(Window),
+    TransitionToLogs,
     TransitionToLoadingMessages,
     EndLoading,
+    EndLogs,
     EndLoadingMessages,
     SelectEmoji,
     Paste(String),
@@ -162,6 +165,7 @@ pub struct App {
     is_loading: bool,
     pub active_notifications: HashMap<String, Vec<notify_rust::NotificationHandle>>,
     display_username: bool,
+    logs: Vec<String>,
 }
 
 pub struct Setup {
@@ -218,6 +222,7 @@ impl Default for App {
             is_loading: false,
             active_notifications: HashMap::new(),
             display_username: false,
+            logs: Vec::new(),
         }
     }
 }
@@ -287,6 +292,7 @@ impl App {
             is_loading: false,
             active_notifications: HashMap::new(),
             display_username,
+            logs: Vec::new(),
         }
     }
 }
@@ -323,11 +329,8 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
         display_username: config.display_username,
     })));
 
-    let tx_input = tx_action.clone();
-    let rx_shutdown_input = tx_shutdown.subscribe();
-
-    let mut rx_shutdown_ticker = tx_shutdown.subscribe();
     let tx_ticker = tx_action.clone();
+    let mut rx_shutdown_ticker = tx_shutdown.subscribe();
 
     let ticker_handle: JoinHandle<()> = tokio::spawn(async move {
         let mut interval = time::interval(Duration::from_millis(100));
@@ -346,6 +349,36 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
             }
         }
     });
+
+    let state_clone = Arc::clone(&app_state);
+    let mut rx_shutdown_logs = tx_shutdown.subscribe();
+
+    let logs_handle: JoinHandle<()> = tokio::spawn(async move {
+        let mut interval = time::interval(Duration::from_secs(2));
+        loop {
+            tokio::select! {
+                _ = rx_shutdown_logs.recv() => {
+                    return;
+                }
+                _ = interval.tick() => {
+                    let mut locked_state = state_clone.lock().await;
+                    if let AppState::Logs(_) = locked_state.state {
+                        match read_log() {
+                            Ok(logs) => {
+                                locked_state.logs = logs;
+                            },
+                            Err(e) => {
+                                print_log(format!("read_log error: {e}").into(), LogType::Error).ok();
+                            },
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    let tx_input = tx_action.clone();
+    let rx_shutdown_input = tx_shutdown.subscribe();
 
     let input_handle: JoinHandle<Result<(), io::Error>> = tokio::spawn(async move {
         let res = handle_input_events(tx_input, rx_shutdown_input).await;
@@ -475,7 +508,13 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
 
     tx_shutdown.send(()).ok();
 
-    let _ = tokio::join!(input_handle, api_handle, ticker_handle, gateway_handle);
+    let _ = tokio::join!(
+        input_handle,
+        api_handle,
+        ticker_handle,
+        logs_handle,
+        gateway_handle
+    );
 
     Ok(())
 }

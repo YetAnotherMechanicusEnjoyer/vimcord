@@ -339,7 +339,7 @@ pub async fn handle_vim_keys(
             state.mode = InputMode::Insert;
         }
         'j' => {
-            if let AppState::Chatting(_) = &state.state {
+            if let AppState::Chatting(_) | AppState::Logs(_) = &state.state {
                 if state.selection_index > 0 {
                     state.selection_index -= 1;
                 } else {
@@ -456,6 +456,64 @@ pub async fn handle_vim_keys(
                         state.cursor_position = prev_line_start + target_offset;
                         clamp_cursor(&mut state);
                     } else if !state.messages.is_empty() {
+                        state.selection_index = 1;
+                    }
+                }
+            } else if let AppState::Logs(_) = &state.state {
+                if state.selection_index != 0 {
+                    if state.selection_index < state.logs.len() {
+                        state.selection_index += 1;
+                    } else {
+                        if let Some(_oldest) = state.logs.last() {
+                            let older_msgs: Result<Vec<crate::Message>, crate::Error> =
+                                Ok(Vec::new()); // todo
+
+                            if let Ok(new_messages) = older_msgs {
+                                for msg in new_messages.into_iter() {
+                                    state.messages.push(msg);
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    let current_pos = state.cursor_position;
+                    let current_column_width = {
+                        let current_line_start = state.input[..current_pos]
+                            .rfind('\n')
+                            .map(|i| i + 1)
+                            .unwrap_or(0);
+                        UnicodeWidthStr::width(&state.input[current_line_start..current_pos])
+                    };
+
+                    let input_before = &state.input[..current_pos];
+
+                    if let Some(last_newline) = input_before.rfind('\n') {
+                        let prev_line_start = state.input[..last_newline]
+                            .rfind('\n')
+                            .map(|i| i + 1)
+                            .unwrap_or(0);
+                        let prev_line_end = last_newline;
+                        let prev_line_str = &state.input[prev_line_start..prev_line_end];
+
+                        let mut target_offset = 0;
+                        let mut current_width = 0;
+                        for c in prev_line_str.chars() {
+                            let w = c.width().unwrap_or(0); // Optimization: avoid c.to_string() allocation
+                            if current_width + w > current_column_width {
+                                break;
+                            }
+                            current_width += w;
+                            target_offset += c.len_utf8();
+                        }
+                        if target_offset == prev_line_str.len()
+                            && target_offset > 0
+                            && let Some(last_char) = prev_line_str.chars().next_back()
+                        {
+                            target_offset -= last_char.len_utf8();
+                        }
+                        state.cursor_position = prev_line_start + target_offset;
+                        clamp_cursor(&mut state);
+                    } else if !state.logs.is_empty() {
                         state.selection_index = 1;
                     }
                 }
@@ -620,6 +678,9 @@ pub async fn handle_vim_keys(
                     AppState::Chatting(_) => {
                         state.selection_index = state.messages.len();
                     }
+                    AppState::Logs(_) => {
+                        state.selection_index = state.logs.len();
+                    }
                     _ => {
                         state.selection_index = 0;
                     }
@@ -707,7 +768,7 @@ pub async fn handle_vim_keys(
 
                 state.selection_index = list_items.len().saturating_sub(1);
             }
-            AppState::Chatting(_) => {
+            AppState::Chatting(_) | AppState::Logs(_) => {
                 state.selection_index = 0;
 
                 let len = state.input.len();

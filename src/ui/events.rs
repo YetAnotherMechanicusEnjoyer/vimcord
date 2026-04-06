@@ -169,6 +169,9 @@ async fn input_submit(
                     "debug" => {
                         print_log(args.join(" ").as_str().into(), LogType::Debug).ok();
                     }
+                    "logs" => {
+                        tx_action.send(AppAction::TransitionToLogs).await.ok();
+                    }
                     _ => {}
                 }
             }
@@ -181,7 +184,7 @@ async fn input_submit(
         return None;
     }
     match state.state.clone() {
-        AppState::Loading(_) => {}
+        AppState::Loading(_) | AppState::Logs(_) => {}
         AppState::Home => match state.selection_index {
             0 => {
                 tx_action.send(AppAction::TransitionToGuilds).await.ok();
@@ -895,6 +898,21 @@ pub async fn handle_keys_events(
                         .await
                         .ok();
                 }
+                AppState::Logs(redirect) => {
+                    match redirect {
+                        Window::Home => tx_action.send(AppAction::TransitionToHome).await.ok(),
+                        Window::Guild => tx_action.send(AppAction::TransitionToGuilds).await.ok(),
+                        Window::DM => tx_action.send(AppAction::TransitionToDM).await.ok(),
+                        Window::Channel(guild) => tx_action
+                            .send(AppAction::TransitionToChannels(guild.clone()))
+                            .await
+                            .ok(),
+                        Window::Chat(channel) => tx_action
+                            .send(AppAction::TransitionToChat(channel.clone()))
+                            .await
+                            .ok(),
+                    };
+                }
             }
         }
         AppAction::Paste(text) => {
@@ -1523,23 +1541,35 @@ pub async fn handle_keys_events(
             state.state = AppState::Loading(redirect_state);
             state.status_message = "Loading...".to_string();
         }
-        AppAction::EndLoading => {
-            if let AppState::Loading(redirect) = state.state.clone() {
-                match redirect {
-                    Window::Home => tx_action.send(AppAction::TransitionToHome).await.ok(),
-                    Window::Guild => tx_action.send(AppAction::TransitionToGuilds).await.ok(),
-                    Window::DM => tx_action.send(AppAction::TransitionToDM).await.ok(),
-                    Window::Channel(guild) => tx_action
-                        .send(AppAction::TransitionToChannels(guild.clone()))
-                        .await
-                        .ok(),
-                    Window::Chat(channel) => tx_action
-                        .send(AppAction::TransitionToChat(channel.clone()))
-                        .await
-                        .ok(),
-                };
-            }
+        AppAction::TransitionToLogs => {
+            let window = match &state.state {
+                AppState::SelectingGuild => Window::Guild,
+                AppState::SelectingDM => Window::DM,
+                AppState::SelectingChannel(guild) => Window::Channel(guild.clone()),
+                AppState::Chatting(ch)
+                | AppState::EmojiSelection(ch)
+                | AppState::Editing(ch, _, _) => Window::Chat(ch.clone()),
+                _ => Window::Home,
+            };
+            state.state = AppState::Logs(window);
+            state.status_message = "Reading Logs".to_string();
         }
+        AppAction::EndLoading | AppAction::EndLogs => match &state.state {
+            AppState::Loading(redirect) | AppState::Logs(redirect) => match redirect {
+                Window::Home => tx_action.send(AppAction::TransitionToHome).await.ok(),
+                Window::Guild => tx_action.send(AppAction::TransitionToGuilds).await.ok(),
+                Window::DM => tx_action.send(AppAction::TransitionToDM).await.ok(),
+                Window::Channel(guild) => tx_action
+                    .send(AppAction::TransitionToChannels(guild.clone()))
+                    .await
+                    .ok(),
+                Window::Chat(channel) => tx_action
+                    .send(AppAction::TransitionToChat(channel.clone()))
+                    .await
+                    .ok(),
+            },
+            _ => None,
+        }?,
         AppAction::TransitionToLoadingMessages => {
             state.is_loading = true;
             state.status_message = "Loading Messages...".to_string();

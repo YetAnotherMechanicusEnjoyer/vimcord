@@ -570,6 +570,173 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
             f.render_widget(Clear, chunks[0]);
             f.render_widget(paragraph, chunks[0]);
         }
+        AppState::Logs(_) => {
+            if max_width == 0 {
+                return;
+            }
+
+            let mut log_messages = app
+                .logs
+                .iter()
+                .filter(|m| {
+                    m.to_lowercase()
+                        .contains(app.search_input.to_lowercase().as_str())
+                })
+                .enumerate()
+                .collect::<Vec<_>>();
+            log_messages.reverse();
+
+            let mut final_content: Vec<Line> = Vec::new();
+            let mut total_visual_height = 0;
+
+            for (original_idx, message) in log_messages.into_iter() {
+                let is_selected =
+                    app.selection_index > 0 && app.selection_index - 1 == original_idx;
+
+                let text_lines: Vec<&str> = message.split('\n').collect();
+                let mut estimated_height = 0;
+
+                let safe_max_width = max_width.saturating_sub(4);
+                for line in text_lines {
+                    let width = UnicodeWidthStr::width(line);
+
+                    if width == 0 || safe_max_width == 0 {
+                        estimated_height += 1;
+                        continue;
+                    }
+
+                    let mut current_line_width = 0;
+                    let mut first_word = true;
+
+                    for word in line.split(' ') {
+                        let word_width = UnicodeWidthStr::width(word);
+                        let space_width = if first_word { 0 } else { 1 };
+
+                        if current_line_width + space_width + word_width <= safe_max_width as usize
+                        {
+                            current_line_width += space_width + word_width;
+                        } else {
+                            if current_line_width > 0 {
+                                estimated_height += 1;
+                            }
+
+                            if word_width > safe_max_width as usize {
+                                let chunks = word_width.div_ceil(safe_max_width as usize);
+                                estimated_height += chunks.saturating_sub(1);
+                                current_line_width = word_width % safe_max_width as usize;
+                                if current_line_width == 0 {
+                                    current_line_width = safe_max_width as usize;
+                                }
+                            } else {
+                                current_line_width = word_width;
+                            }
+                        }
+                        first_word = false;
+                    }
+                    if current_line_width > 0 {
+                        estimated_height += 1;
+                    }
+                }
+
+                let start_y = total_visual_height;
+                total_visual_height += estimated_height;
+                let end_y = total_visual_height;
+
+                if is_selected {
+                    if start_y < app.chat_scroll_offset {
+                        app.chat_scroll_offset = start_y;
+                    } else if end_y > app.chat_scroll_offset + max_height {
+                        app.chat_scroll_offset = end_y.saturating_sub(max_height);
+                    }
+                }
+
+                let bg_color = if is_selected {
+                    Color::DarkGray
+                } else {
+                    Color::Reset
+                };
+
+                fn parse_log(log_line: &str) -> Option<(&str, &str, &str, &str)> {
+                    let bracket_end = log_line.find(']')?;
+                    let datetime = &log_line[1..bracket_end];
+                    let (date, time) = datetime.split_once(' ')?;
+                    let rest = log_line[bracket_end + 1..].trim_start();
+                    let (log_type, content) = rest.split_once(": ")?;
+
+                    Some((date, time, log_type, content))
+                }
+
+                let (date, time, log_type, content) =
+                    parse_log(message.as_str()).unwrap_or_default();
+
+                let content_lines: Vec<&str> = content.split('\n').collect();
+
+                let style = Style::default().fg(Color::White).bg(bg_color);
+
+                let log_type_color = match log_type {
+                    "ERROR" => Color::Red,
+                    "WARNING" => Color::Yellow,
+                    "INFO" => Color::Cyan,
+                    "DEBUG" => Color::Magenta,
+                    _ => Color::Green,
+                };
+
+                for (i, line_content) in content_lines.iter().enumerate() {
+                    let mut spans = vec![];
+
+                    if i == 0 {
+                        spans.push(Span::styled(
+                            "[",
+                            Style::default().fg(Color::LightBlue).bg(bg_color),
+                        ));
+                        spans.push(Span::styled(
+                            date,
+                            Style::default().fg(Color::LightCyan).bg(bg_color),
+                        ));
+                        spans.push(Span::default().content(" ").bg(bg_color));
+                        spans.push(Span::styled(
+                            time,
+                            Style::default().fg(Color::LightBlue).bg(bg_color),
+                        ));
+                        spans.push(Span::styled(
+                            "]",
+                            Style::default().fg(Color::LightBlue).bg(bg_color),
+                        ));
+                        spans.push(Span::default().content(" ").bg(bg_color));
+                        spans.push(Span::styled(
+                            log_type,
+                            Style::default().fg(log_type_color).bg(bg_color),
+                        ));
+                        spans.push(Span::default().content(" ").bg(bg_color));
+                    } else {
+                        // Keep multi-line messages highlighted properly across all lines
+                        spans.push(Span::styled("".to_string(), Style::default().bg(bg_color)));
+                    }
+
+                    spans.push(Span::styled(line_content.to_string(), style));
+                    final_content.push(Line::from(spans));
+                }
+            }
+
+            if app.selection_index == 0 {
+                app.chat_scroll_offset = total_visual_height.saturating_sub(max_height);
+            }
+
+            let title = "vimcord Client - Logs".to_string();
+
+            let paragraph = Paragraph::new(final_content)
+                .block(
+                    Block::default()
+                        .title(Span::styled(title, Style::default().fg(Color::Yellow)))
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Double),
+                )
+                .wrap(Wrap { trim: false })
+                .scroll((app.chat_scroll_offset as u16, 0));
+
+            f.render_widget(Clear, chunks[0]);
+            f.render_widget(paragraph, chunks[0]);
+        }
     };
 
     if let AppState::EmojiSelection(_) = &app.state {
