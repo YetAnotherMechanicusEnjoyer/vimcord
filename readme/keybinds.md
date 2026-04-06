@@ -40,6 +40,7 @@ When Vim mode is enabled, typing text is done in **Insert Mode** while navigatio
 | `dw` | Delete the word in front of the cursor |
 | `db` | Delete the word before the cursor |
 | `dd` | Delete the current line (or delete the selected message if you authored it) |
+| `gg` | Move cursor to the start of selection |
 | `G` | Move cursor to the end of input (or clear message selection) |
 
 ### Command & Search
