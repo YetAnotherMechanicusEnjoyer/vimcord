@@ -18,9 +18,11 @@ The following features are grouped by **Importance** (Foundation, Critical, High
 
 ### 0. Foundation (Blockers)
 *These are infrastructural tasks that must be completed before other features can be fully realized.*
-1. **WebSocket / Gateway Migration** *(Difficulty: Hard)*
-   - **Description**: Refactor the application network layer away from relying solely on HTTP requests. Move to persistent WebSocket connections. **This is a foundational prerequisite.** Many other features (such as Proper Push Notifications, Typing Indicators, Presence Updates, and Slash Commands) are currently blocked because they require a WebSocket connection to be implemented correctly.
-   - **Implementation**: Connect to the Discord Gateway via WebSockets to receive real-time push events (e.g., new messages, status updates, typing indicators) rather than making HTTP API calls or polling.
+1. <details>
+     <summary><sub><s><strong>WebSocket / Gateway Migration</strong> <em>(Difficulty: Hard)</em></s></sub></summary>
+     <strong>Description</strong>: Refactor the application network layer away from relying solely on HTTP requests. Move to persistent WebSocket connections. **This is a foundational prerequisite.** Many other features (such as Proper Push Notifications, Typing Indicators, Presence Updates, and Slash Commands) are currently blocked because they require a WebSocket connection to be implemented correctly.<br/>
+     <strong>Implementation</strong>: Connect to the Discord Gateway via WebSockets to receive real-time push events (e.g., new messages, status updates, typing indicators) rather than making HTTP API calls or polling.
+   </details>
 
 ### 1. Critical Importance (Core Usability)
 *These are essential features that users expect from any functioning chat client. Without these, the client feels incomplete.*
@@ -29,9 +31,11 @@ The following features are grouped by **Importance** (Foundation, Critical, High
      <strong>Description</strong>: Ability for the user to delete their own messages.<br/>
      <strong>Implementation</strong>: Add a keybinding in the UI to call <code>DELETE /channels/{channel.id}/messages/{message.id}</code>.
     </details>
-2. **Mark as Read / Read Receipts** *(Difficulty: Easy)*
-   - **Description**: Updating the local and remote "last read" state to clear unread notification badges.
-   - **Implementation**: Hitting the `/ack` endpoint for channels when viewed.
+2. <details> 
+     <summary><sub><s><strong>Mark as Read / Read Receipts</strong> <em>(Difficulty: Easy)</em></s></sub></summary>
+     <strong>Description</strong>: Updating the local and remote "last read" state to clear unread notification badges.<br/>
+     <strong>Implementation</strong>: Hitting the <code>/ack</code> endpoint for channels when viewed.
+    </details>
 3. **Proper Push Notifications** *(Difficulty: Medium) (🔒 Blocked by WebSockets)*
    - **Description**: Replace the current hacky workaround for notifications with reliable, instant desktop push notifications for new messages.
    - **Implementation**: Listen for `MESSAGE_CREATE` events in real-time over the WebSocket Gateway to trigger native notifications correctly without missing any or double-notifying.
@@ -43,9 +47,11 @@ The following features are grouped by **Importance** (Foundation, Critical, High
 6. **Message Replies** *(Difficulty: Medium)*
    - **Description**: In-line replying to specific messages.
    - **Implementation**: UI interaction to select a message, and adding `message_reference` to the message creation API payload.
-7. **Mentions & Pings** *(Difficulty: Medium)*
-   - **Description**: Highlighting mentions natively (`@username`), alerting the user, and providing autocomplete for users in the input bar.
-   - **Implementation**: Parsing `<@id>` tags in text rendering and querying guild members for autocomplete.
+7. <details>
+     <summary><sub><s><strong>Mentions & Pings</strong> <em>(Difficulty: Medium)</em></s></sub></summary>
+     <strong>Description</strong>: Highlighting mentions natively (<code>@username</code>), alerting the user, and providing autocomplete for users in the input bar.<br/>
+     <strong>Implementation</strong>: Parsing <code><@id></code> tags in text rendering and querying guild members for autocomplete.
+   </details>
 
 ### 2. High Importance (Standard Discord Experience)
 *Features that make Discord unique and are heavily used in daily communication.*
@@ -68,12 +74,23 @@ The following features are grouped by **Importance** (Foundation, Critical, High
 6. **Threads** *(Difficulty: Medium)*
    - **Description**: Viewing thread lists, joining threads, and sending messages within threads.
    - **Implementation**: Threads are conceptually similar to channels but require specific API handling and a nested or distinct UI view mode.
-7. **Vim Command Mode & Quitting** *(Difficulty: Hard)*
-   - **Description**: Stop `Esc` from immediately quitting the entire application. Instead, introduce a true Command Mode where users must type `:q` (or `:quit`) to exit, more closely mirroring actual Vim behavior.
-   - **Implementation**: Intercept `Esc` to ensure it only drops to Normal Mode (or clears input). Add an input buffer for handling `:` commands and parse them accordingly. **Note: This will require a new UI overlay/input mode and will likely significantly overlap and conflict with emoji (`:emoji:`) shortcode handling.**
-7. **Embeds & Attachments Viewing** *(Difficulty: Impractical)*
+7. <details>
+     <summary><sub><s><strong>Vim Command Mode & Quitting</strong> <em>(Difficulty: Hard)</em></s></sub></summary>
+     <strong>Description</strong>: Stop <code>Esc</code> from immediately quitting the entire application. Instead, introduce a true Command Mode where users must type <code>:q</code> (or <code>:quit</code>) to exit, more closely mirroring actual Vim behavior.<br/>
+     <strong>Implementation</strong>: Intercept <code>Esc</code> to ensure it only drops to Normal Mode (or clears input). Add an input buffer for handling <code>:</code> commands and parse them accordingly. <strong>Note: This will require a new UI overlay/input mode and will likely significantly overlap and conflict with emoji (<code>:emoji:</code>) shortcode handling.</strong>
+     </details>
+8. **Embeds & Attachments Viewing** *(Difficulty: Impractical)*
    - **Description**: Displaying rich embeds, links, and text summaries of images/files in the TUI.
    - **Implementation**: Parsing complex embed payloads and formatting them nicely in the terminal. (Full image rendering requires terminal graphics protocols like Sixel).
+9. **Visual Mode** *(Difficulty: Medium)*
+   - **Description**: Support for selecting text in the input bar similar to Vim's visual mode.
+   - **Implementation**: Creating a visual UI state to track and highlight selected regions of text.
+10. **Yank & Delete to Yank Buffer** *(Difficulty: Medium)*
+    - **Description**: Deleting text (`d`, `x`, etc.) should place the text into a yank buffer, and `y` should yank text.
+    - **Implementation**: Internally representing yank registers and caching strings when text is deleted or yanked.
+11. **Paste** *(Difficulty: Medium)*
+    - **Description**: Allow pasting text from the yank buffer into the input bar using `p` or `P`.
+    - **Implementation**: Inserting the contents of the internal yank buffer at the current cursor position.
 
 ### 3. Medium Importance (Organization & Power User Tools)
 *Features geared towards server management, moderation, and advanced usage.*

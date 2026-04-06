@@ -18,6 +18,7 @@ pub use message::Message;
 pub use message::PartialMessage;
 pub use user::User;
 
+use crate::api::guild::PartialGuild;
 use crate::{
     Error,
     api::{
@@ -25,6 +26,39 @@ use crate::{
         guild::GuildMember,
     },
 };
+
+#[derive(Debug, Clone)]
+pub enum AnyChannel {
+    Guild(Channel),
+    Direct(DM),
+}
+
+impl AnyChannel {
+    pub fn get_id(&self) -> String {
+        match self {
+            Self::Guild(ch) => ch.id.clone(),
+            Self::Direct(dm) => dm.id.clone(),
+        }
+    }
+    pub fn get_channel_type(&self) -> u8 {
+        match self {
+            Self::Guild(ch) => ch.channel_type,
+            Self::Direct(dm) => dm.channel_type,
+        }
+    }
+    pub fn get_name(&self) -> String {
+        match self {
+            Self::Guild(ch) => ch.name.clone(),
+            Self::Direct(dm) => dm.get_name(),
+        }
+    }
+    pub fn get_guild_id(&self) -> Option<String> {
+        match self {
+            Self::Guild(ch) => ch.guild_id.clone(),
+            Self::Direct(_) => None,
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ApiClient {
@@ -102,13 +136,27 @@ impl ApiClient {
         }
     }
 
-    pub async fn get_current_user(&self) -> Result<User, Error> {
-        self.api_request("users/@me", Method::GET, None).await
+    pub async fn get_channel(&self, channel_id: &str) -> Result<AnyChannel, Error> {
+        let json: serde_json::Value = self
+            .api_request(format!("channels/{channel_id}").as_str(), Method::GET, None)
+            .await?;
+
+        let channel_type = json.get("type").and_then(|t| t.as_u64()).unwrap_or(0) as u8;
+
+        match channel_type {
+            1 | 3 => {
+                let dm: DM = serde_json::from_value(json)?;
+                Ok(AnyChannel::Direct(dm))
+            }
+            _ => {
+                let channel: Channel = serde_json::from_value(json)?;
+                Ok(AnyChannel::Guild(channel))
+            }
+        }
     }
 
-    pub async fn get_channel(&self, channel_id: &str) -> Result<Channel, Error> {
-        self.api_request(format!("channels/{channel_id}").as_str(), Method::GET, None)
-            .await
+    pub async fn get_current_user(&self) -> Result<User, Error> {
+        self.api_request("users/@me", Method::GET, None).await
     }
 
     pub async fn get_dms(&self) -> Result<Vec<DM>, Error> {
@@ -255,7 +303,16 @@ impl ApiClient {
         .await
     }
 
-    pub async fn get_current_user_guilds(&self) -> Result<Vec<Guild>, Error> {
+    pub async fn ack_message(&self, channel_id: &str, message_id: &str) -> Result<(), Error> {
+        self.api_request_no_content(
+            format!("channels/{channel_id}/messages/{message_id}/ack").as_str(),
+            Method::POST,
+            Some(serde_json::json!({"token": null})),
+        )
+        .await
+    }
+
+    pub async fn get_current_user_guilds(&self) -> Result<Vec<PartialGuild>, Error> {
         self.api_request("/users/@me/guilds", Method::GET, None)
             .await
     }

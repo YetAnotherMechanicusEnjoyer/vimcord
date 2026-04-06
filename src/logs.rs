@@ -1,5 +1,9 @@
 use crate::Error;
-use std::{fs::File, io::Write, path::PathBuf};
+use std::{
+    fs::File,
+    io::{BufReader, Read, Write},
+    path::PathBuf,
+};
 
 const APP_NAME: &str = "vimcord";
 
@@ -7,9 +11,7 @@ pub enum LogType {
     Error,
     #[allow(dead_code)]
     Warning,
-    #[allow(dead_code)]
     Info,
-    #[allow(dead_code)]
     Debug,
 }
 
@@ -20,6 +22,20 @@ fn write_log_file(path: PathBuf, msg: &[u8]) -> Result<(), Error> {
         .open(path)?
         .write_all(msg)?;
     Ok(())
+}
+
+fn read_log_file(path: PathBuf) -> Result<Vec<String>, Error> {
+    let mut contents = String::new();
+    BufReader::new(File::open(path)?).read_to_string(&mut contents)?;
+    Ok(contents.split('\n').map(|s| s.to_string()).rev().collect())
+}
+
+pub fn read_log() -> Result<Vec<String>, Error> {
+    let mut path = get_log_directory(APP_NAME).unwrap_or(".".into());
+    let _ = std::fs::create_dir_all(&path);
+    path.push("logs");
+
+    read_log_file(path)
 }
 
 pub fn print_log(msg: Error, log_type: LogType) -> Result<(), Error> {

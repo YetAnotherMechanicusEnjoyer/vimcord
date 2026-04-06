@@ -6,8 +6,8 @@ use ratatui::{
 use unicode_width::UnicodeWidthStr;
 
 use crate::{
-    App, AppState,
-    api::{Channel, DM, Emoji, Guild},
+    App, AppState, InputMode,
+    api::{Channel, DM, Emoji, guild::PartialGuild},
 };
 
 pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
@@ -84,7 +84,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
             f.render_stateful_widget(list, chunks[0], &mut state);
         }
         AppState::SelectingDM => {
-            let filter_text = app.input.to_lowercase();
+            let filter_text = app.search_input.to_lowercase();
 
             let filtered_dms: Vec<&DM> = app
                 .dms
@@ -95,6 +95,25 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
             let items: Vec<ListItem> = filtered_dms
                 .iter()
                 .map(|d| {
+                    let mut spans = Vec::new();
+
+                    if d.channel_type == 1 && d.recipients.len() == 1 {
+                        let (status_char, status_color) = match app
+                            .user_statuses
+                            .get(&d.recipients[0].id)
+                            .map(|s| s.as_str())
+                        {
+                            Some("online") => ("", Color::LightGreen),
+                            Some("idle") => ("", Color::LightYellow),
+                            Some("dnd") => ("", Color::LightRed),
+                            _ => ("", Color::DarkGray), // offline/invisible/unknown
+                        };
+                        spans.push(Span::styled(
+                            format!("{} ", status_char),
+                            Style::default().fg(status_color),
+                        ));
+                    }
+
                     let char = match d.channel_type {
                         1 => '',
                         3 => '',
@@ -107,8 +126,12 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                         _ => Color::LightRed,
                     };
 
-                    ListItem::new(format!("{char} {}", d.get_name()))
-                        .style(Style::default().fg(color))
+                    spans.push(Span::styled(
+                        format!("{char} {}", d.get_name()),
+                        Style::default().fg(color),
+                    ));
+
+                    ListItem::new(Line::from(spans))
                 })
                 .collect();
 
@@ -133,9 +156,9 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
             f.render_stateful_widget(list, chunks[0], &mut state);
         }
         AppState::SelectingGuild => {
-            let filter_text = app.input.to_lowercase();
+            let filter_text = app.search_input.to_lowercase();
 
-            let filtered_guilds: Vec<&Guild> = app
+            let filtered_guilds: Vec<&PartialGuild> = app
                 .guilds
                 .iter()
                 .filter(|g| g.name.to_lowercase().contains(&filter_text))
@@ -177,8 +200,8 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
             f.render_widget(Clear, chunks[0]);
             f.render_stateful_widget(list, chunks[0], &mut state);
         }
-        AppState::SelectingChannel(_, guild_name) => {
-            let filter_text = app.input.to_lowercase();
+        AppState::SelectingChannel(guild) => {
+            let filter_text = app.search_input.to_lowercase();
 
             let permission_context = &app.context;
 
@@ -302,7 +325,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
 
             let title = format!(
                 "Channels for Guild: {} | Channels found: {} | Actual index: {}",
-                guild_name,
+                guild.name,
                 num_filtered.saturating_sub(1),
                 app.selection_index
             );
@@ -321,15 +344,25 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
             f.render_widget(Clear, chunks[0]);
             f.render_stateful_widget(list, chunks[0], &mut state);
         }
-        AppState::Chatting(_, channel_name)
-        | AppState::EmojiSelection(_, channel_name)
-        | AppState::Editing(_, channel_name, _, _) => {
+        AppState::Chatting(channel)
+        | AppState::EmojiSelection(channel)
+        | AppState::Editing(channel, _, _) => {
             if max_width == 0 {
                 return;
             }
 
-            let mut messages_reversed_with_index =
-                app.messages.iter().enumerate().collect::<Vec<_>>();
+            let mut messages_reversed_with_index = app
+                .messages
+                .iter()
+                .filter(|m| {
+                    m.content
+                        .clone()
+                        .unwrap_or_default()
+                        .to_lowercase()
+                        .contains(app.search_input.to_lowercase().as_str())
+                })
+                .enumerate()
+                .collect::<Vec<_>>();
             messages_reversed_with_index.reverse(); // Oldest first
 
             let mut final_content: Vec<Line> = Vec::new();
@@ -338,6 +371,16 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
             for (original_idx, message) in messages_reversed_with_index.into_iter() {
                 let is_selected =
                     app.selection_index > 0 && app.selection_index - 1 == original_idx;
+
+                let author = if app.display_username {
+                    message.author.username.clone()
+                } else {
+                    message
+                        .author
+                        .global_name
+                        .clone()
+                        .unwrap_or(message.author.username.clone())
+                };
 
                 let formatted_text = format!(
                     "[{}] {}: {}",
@@ -356,11 +399,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                             .split('.')
                             .next()
                             .unwrap_or(""),
-                    message
-                        .author
-                        .global_name
-                        .clone()
-                        .unwrap_or(message.author.username.clone()),
+                    author,
                     message.content.as_deref().unwrap_or("(*non-text*)")
                 );
 
@@ -440,16 +479,24 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                     .unwrap_or("")
                     .to_string();
 
-                let author = format!(
-                    " {}: ",
+                let name = if app.display_username {
+                    message.author.username.clone()
+                } else {
                     message
                         .author
                         .global_name
                         .clone()
                         .unwrap_or(message.author.username.clone())
-                );
+                };
 
-                let content = message.map_mentions();
+                let author = format!(" {name}: ");
+
+                let content;
+                if let Some(guild) = app.selected_guild.clone() {
+                    content = message.map_mentions(Some(guild));
+                } else {
+                    content = message.map_mentions(None);
+                }
 
                 let content_lines: Vec<&str> = content.split('\n').collect();
 
@@ -505,7 +552,177 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                 app.chat_scroll_offset = total_visual_height.saturating_sub(max_height);
             }
 
-            let title = format!("vimcord Client - Chatting in channel - {}", channel_name);
+            let title = format!(
+                "vimcord Client - Chatting in channel - {}",
+                channel.get_name()
+            );
+
+            let paragraph = Paragraph::new(final_content)
+                .block(
+                    Block::default()
+                        .title(Span::styled(title, Style::default().fg(Color::Yellow)))
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Double),
+                )
+                .wrap(Wrap { trim: false })
+                .scroll((app.chat_scroll_offset as u16, 0));
+
+            f.render_widget(Clear, chunks[0]);
+            f.render_widget(paragraph, chunks[0]);
+        }
+        AppState::Logs(_) => {
+            if max_width == 0 {
+                return;
+            }
+
+            let mut log_messages = app
+                .logs
+                .iter()
+                .filter(|m| {
+                    m.to_lowercase()
+                        .contains(app.search_input.to_lowercase().as_str())
+                })
+                .enumerate()
+                .collect::<Vec<_>>();
+            log_messages.reverse();
+
+            let mut final_content: Vec<Line> = Vec::new();
+            let mut total_visual_height = 0;
+
+            for (original_idx, message) in log_messages.into_iter() {
+                let is_selected =
+                    app.selection_index > 0 && app.selection_index - 1 == original_idx;
+
+                let text_lines: Vec<&str> = message.split('\n').collect();
+                let mut estimated_height = 0;
+
+                let safe_max_width = max_width.saturating_sub(4);
+                for line in text_lines {
+                    let width = UnicodeWidthStr::width(line);
+
+                    if width == 0 || safe_max_width == 0 {
+                        estimated_height += 1;
+                        continue;
+                    }
+
+                    let mut current_line_width = 0;
+                    let mut first_word = true;
+
+                    for word in line.split(' ') {
+                        let word_width = UnicodeWidthStr::width(word);
+                        let space_width = if first_word { 0 } else { 1 };
+
+                        if current_line_width + space_width + word_width <= safe_max_width as usize
+                        {
+                            current_line_width += space_width + word_width;
+                        } else {
+                            if current_line_width > 0 {
+                                estimated_height += 1;
+                            }
+
+                            if word_width > safe_max_width as usize {
+                                let chunks = word_width.div_ceil(safe_max_width as usize);
+                                estimated_height += chunks.saturating_sub(1);
+                                current_line_width = word_width % safe_max_width as usize;
+                                if current_line_width == 0 {
+                                    current_line_width = safe_max_width as usize;
+                                }
+                            } else {
+                                current_line_width = word_width;
+                            }
+                        }
+                        first_word = false;
+                    }
+                    if current_line_width > 0 {
+                        estimated_height += 1;
+                    }
+                }
+
+                let start_y = total_visual_height;
+                total_visual_height += estimated_height;
+                let end_y = total_visual_height;
+
+                if is_selected {
+                    if start_y < app.chat_scroll_offset {
+                        app.chat_scroll_offset = start_y;
+                    } else if end_y > app.chat_scroll_offset + max_height {
+                        app.chat_scroll_offset = end_y.saturating_sub(max_height);
+                    }
+                }
+
+                let bg_color = if is_selected {
+                    Color::DarkGray
+                } else {
+                    Color::Reset
+                };
+
+                fn parse_log(log_line: &str) -> Option<(&str, &str, &str, &str)> {
+                    let bracket_end = log_line.find(']')?;
+                    let datetime = &log_line[1..bracket_end];
+                    let (date, time) = datetime.split_once(' ')?;
+                    let rest = log_line[bracket_end + 1..].trim_start();
+                    let (log_type, content) = rest.split_once(": ")?;
+
+                    Some((date, time, log_type, content))
+                }
+
+                let (date, time, log_type, content) =
+                    parse_log(message.as_str()).unwrap_or_default();
+
+                let content_lines: Vec<&str> = content.split('\n').collect();
+
+                let style = Style::default().fg(Color::White).bg(bg_color);
+
+                let log_type_color = match log_type {
+                    "ERROR" => Color::Red,
+                    "WARNING" => Color::Yellow,
+                    "INFO" => Color::Cyan,
+                    "DEBUG" => Color::Magenta,
+                    _ => Color::Green,
+                };
+
+                for (i, line_content) in content_lines.iter().enumerate() {
+                    let mut spans = vec![];
+
+                    if i == 0 {
+                        spans.push(Span::styled(
+                            "[",
+                            Style::default().fg(Color::LightBlue).bg(bg_color),
+                        ));
+                        spans.push(Span::styled(
+                            date,
+                            Style::default().fg(Color::LightCyan).bg(bg_color),
+                        ));
+                        spans.push(Span::default().content(" ").bg(bg_color));
+                        spans.push(Span::styled(
+                            time,
+                            Style::default().fg(Color::LightBlue).bg(bg_color),
+                        ));
+                        spans.push(Span::styled(
+                            "]",
+                            Style::default().fg(Color::LightBlue).bg(bg_color),
+                        ));
+                        spans.push(Span::default().content(" ").bg(bg_color));
+                        spans.push(Span::styled(
+                            log_type,
+                            Style::default().fg(log_type_color).bg(bg_color),
+                        ));
+                        spans.push(Span::default().content(" ").bg(bg_color));
+                    } else {
+                        // Keep multi-line messages highlighted properly across all lines
+                        spans.push(Span::styled("".to_string(), Style::default().bg(bg_color)));
+                    }
+
+                    spans.push(Span::styled(line_content.to_string(), style));
+                    final_content.push(Line::from(spans));
+                }
+            }
+
+            if app.selection_index == 0 {
+                app.chat_scroll_offset = total_visual_height.saturating_sub(max_height);
+            }
+
+            let title = "vimcord Client - Logs".to_string();
 
             let paragraph = Paragraph::new(final_content)
                 .block(
@@ -522,7 +739,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
         }
     };
 
-    if let AppState::EmojiSelection(_, _) = &app.state {
+    if let AppState::EmojiSelection(_) = &app.state {
         let input_area = chunks[1];
         let emoji_popup_height = 8;
 
@@ -539,15 +756,13 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
 
         let mut filtered_items: Vec<ListItem> = Vec::new();
 
-        let app_clone = app.clone();
-
-        let filtered_unicode: Vec<&(String, String)> = app_clone
+        let filtered_unicode: Vec<&(String, String)> = app
             .emoji_map
             .iter()
             .filter(|(name, _)| name.starts_with(&app.emoji_filter))
             .collect();
 
-        let filtered_custom: Vec<&Emoji> = app_clone
+        let filtered_custom: Vec<&Emoji> = app
             .custom_emojis
             .iter()
             .filter(|e| e.name.starts_with(&app.emoji_filter))
@@ -594,14 +809,22 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
         }
     }
 
-    let is_editing = matches!(&app.state, AppState::Editing(_, _, _, _));
+    let is_editing = matches!(&app.state, AppState::Editing(_, _, _));
     let border_color = if is_editing {
         Color::LightMagenta
+    } else if let InputMode::Command = &app.mode {
+        Color::LightGreen
+    } else if let InputMode::Search = &app.mode {
+        Color::LightRed
     } else {
         Color::Reset
     };
     let title_color = if is_editing {
         Color::LightMagenta
+    } else if let InputMode::Command = &app.mode {
+        Color::LightGreen
+    } else if let InputMode::Search = &app.mode {
+        Color::LightRed
     } else {
         Color::Yellow
     };
@@ -609,14 +832,14 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
     let mut display_status_message = app.status_message.clone();
 
     let active_channel_id = match &app.state {
-        AppState::Chatting(id, _) => Some(id),
-        AppState::EmojiSelection(id, _) => Some(id),
-        AppState::Editing(id, _, _, _) => Some(id),
+        AppState::Chatting(channel) => Some(channel.get_id()),
+        AppState::EmojiSelection(channel) => Some(channel.get_id()),
+        AppState::Editing(channel, _, _) => Some(channel.get_id()),
         _ => None,
     };
 
     if let Some(channel_id) = active_channel_id
-        && let Some(typers) = app.typing_users.get(channel_id)
+        && let Some(typers) = app.typing_users.get(&channel_id)
         && !typers.is_empty()
     {
         let mut typers_names = Vec::new();
@@ -643,13 +866,16 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
         display_status_message = format!("{} | {}", app.status_message, text);
     }
 
+    let title = match &app.mode {
+        InputMode::Command => "Command Line".to_string(),
+        InputMode::Search => "Searching".to_string(),
+        _ => format!("Input: {}", display_status_message),
+    };
+
     f.render_widget(
         Paragraph::new(app.input.as_str()).block(
             Block::default()
-                .title(Span::styled(
-                    format!("Input: {}", display_status_message),
-                    Style::default().fg(title_color),
-                ))
+                .title(Span::styled(title, Style::default().fg(title_color)))
                 .borders(Borders::ALL)
                 .border_type(BorderType::Double)
                 .border_style(Style::default().fg(border_color)),

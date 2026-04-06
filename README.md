@@ -111,6 +111,14 @@ or
 DISCORD_TOKEN="your-token-here" vimcord
 ```
 
+## Keybinds
+
+For a detailed list of all standard and Vim-mode keybinds, please see the [Keybinds Documentation](readme/keybinds.md).
+
+## Commands
+
+For a list of supported Vim-mode commands (e.g., `:quit`), please see the [Commands Documentation](readme/commands.md).
+
 ## Roadmap & Missing Features
 
 While `vimcord` is fully functional for basic chat and navigation, there are many exciting features on our radar! 

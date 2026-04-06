@@ -8,7 +8,7 @@ use tokio::{
 
 use crate::{
     App, AppAction, AppState, InputMode, KeywordAction, Window,
-    api::{Channel, DM, Emoji, Guild, Message},
+    api::{AnyChannel, Channel, DM, Emoji, Message, guild::PartialGuild},
     logs::{LogType, print_log},
     ui::vim,
 };
@@ -18,13 +18,13 @@ use crate::{
 fn insert_char_at_cursor(state: &mut MutexGuard<'_, App>, tx_action: Sender<AppAction>, c: char) {
     let current_state = state.state.clone();
     match current_state {
-        AppState::EmojiSelection(channel_id, _) => {
+        AppState::EmojiSelection(channel) => {
             let pos = state.cursor_position;
             state.input.insert(pos, c);
             state.cursor_position += c.len_utf8();
             if c == ' ' {
                 #[allow(unused)]
-                tx_action.send(AppAction::TransitionToChannels(channel_id));
+                tx_action.send(AppAction::TransitionToChat(channel));
                 state.emoji_filter.clear();
                 state.emoji_filter_start = None;
             } else {
@@ -47,7 +47,7 @@ fn insert_char_at_cursor(state: &mut MutexGuard<'_, App>, tx_action: Sender<AppA
 
                 if state.emoji_filter.is_empty() {
                     #[allow(unused)]
-                    tx_action.send(AppAction::TransitionToChannels(channel_id));
+                    tx_action.send(AppAction::TransitionToChat(channel));
                     state.emoji_filter_start = None;
                     state.status_message =
                         "Chatting in channel. Press Enter to send message. Esc to return channels"
@@ -133,8 +133,58 @@ async fn input_submit(
     filtered_custom: Vec<&Emoji>,
     total_filtered_emojis: usize,
 ) -> Option<KeywordAction> {
-    match &state.clone().state {
-        AppState::Loading(_) => {}
+    if state.vim_mode && (state.mode == InputMode::Command || state.mode == InputMode::Search) {
+        let input = state.input.clone();
+
+        state.input = state.saved_input.clone().unwrap_or_default();
+        state.saved_input = None;
+        let pos = if state.cursor_position <= state.input.len() && state.cursor_position > 0 {
+            state.cursor_position
+        } else {
+            state.input.len()
+        };
+        if let Some(c) = state.input[..pos].chars().next_back()
+            && c != '\n'
+        {
+            state.cursor_position = state.cursor_position.saturating_sub(c.len_utf8());
+        }
+        if !(state.cursor_position == state.input.len() && state.input.ends_with('\n')) {
+            vim::clamp_cursor(state);
+        }
+
+        match &state.mode {
+            InputMode::Command => {
+                let (cmd, args) = {
+                    let mut s = input.split(' ');
+                    (
+                        s.next().unwrap_or_default().to_lowercase(),
+                        s.map(|s| s.to_string()).collect::<Vec<String>>(),
+                    )
+                };
+
+                match cmd.as_str() {
+                    "quit" | "q" => {
+                        return Some(KeywordAction::Break);
+                    }
+                    "debug" => {
+                        print_log(args.join(" ").as_str().into(), LogType::Debug).ok();
+                    }
+                    "logs" => {
+                        tx_action.send(AppAction::TransitionToLogs).await.ok();
+                    }
+                    _ => {}
+                }
+            }
+            InputMode::Search => {
+                state.search_input = input;
+            }
+            _ => {}
+        }
+        state.mode = InputMode::Normal;
+        return None;
+    }
+    match state.state.clone() {
+        AppState::Loading(_) | AppState::Logs(_) => {}
         AppState::Home => match state.selection_index {
             0 => {
                 tx_action.send(AppAction::TransitionToGuilds).await.ok();
@@ -148,7 +198,7 @@ async fn input_submit(
             _ => {}
         },
         AppState::SelectingDM => {
-            let filter_text = state.input.to_lowercase();
+            let filter_text = state.search_input.to_lowercase();
             let dms: Vec<&DM> = state
                 .dms
                 .iter()
@@ -159,38 +209,36 @@ async fn input_submit(
                 return Some(KeywordAction::Continue);
             }
 
-            let selected_dm = &dms[state.selection_index];
-            let dm_id_clone = selected_dm.id.clone();
+            let selected_dm = dms[state.selection_index].clone();
             let selected_dm_name = if selected_dm.recipients.is_empty() {
                 "Empty".to_string()
             } else {
                 selected_dm.recipients[0].username.clone()
             };
 
-            state.input = String::new();
             state.cursor_position = 0;
             state.status_message = format!("Loading messages for {selected_dm_name}...");
 
             let tx_action_clone = tx_action.clone();
             let api_client_clone = state.api_client.clone();
-            let channel_id_load = dm_id_clone.clone();
+            let channel_load = selected_dm.clone();
 
             tokio::spawn(async move {
                 tx_action_clone
-                    .send(AppAction::TransitionToLoading(Window::Chat(
-                        channel_id_load.clone(),
-                    )))
+                    .send(AppAction::TransitionToLoading(Window::Chat(Box::new(
+                        AnyChannel::Direct(channel_load.clone()),
+                    ))))
                     .await
                     .ok();
 
                 match api_client_clone
-                    .get_channel_messages(&channel_id_load, None, None, None, Some(100))
+                    .get_channel_messages(&channel_load.id, None, None, None, Some(100))
                     .await
                 {
                     Ok(messages) => {
                         if let Err(e) = tx_action_clone
                             .send(AppAction::ApiUpdateMessages(
-                                channel_id_load.clone(),
+                                channel_load.id.clone(),
                                 messages,
                             ))
                             .await
@@ -211,8 +259,8 @@ async fn input_submit(
             });
         }
         AppState::SelectingGuild => {
-            let filter_text = state.input.to_lowercase();
-            let guilds: Vec<&Guild> = state
+            let filter_text = state.search_input.to_lowercase();
+            let guilds: Vec<&PartialGuild> = state
                 .guilds
                 .iter()
                 .filter(|g| g.name.to_lowercase().contains(&filter_text))
@@ -222,9 +270,35 @@ async fn input_submit(
                 return Some(KeywordAction::Continue);
             }
 
-            let selected_guild = &guilds[state.selection_index];
-            let guild_id_clone = selected_guild.id.clone();
-            let selected_guild_name = selected_guild.name.clone();
+            let selected_partial_guild = guilds[state.selection_index].clone();
+            let selected_guild_name = selected_partial_guild.name.clone();
+
+            let selected_guild = match state
+                .api_client
+                .get_guild(selected_partial_guild.id.as_str())
+                .await
+            {
+                Ok(g) => g,
+                Err(e) => {
+                    print_log(e, LogType::Error).ok();
+                    tx_action.send(AppAction::TransitionToGuilds).await.ok();
+                    return None;
+                }
+            };
+
+            if let Err(e) = state
+                .gateway_client
+                .request_guild_members(selected_partial_guild.id.as_str())
+                .await
+            {
+                print_log(
+                    format!("Error requesting guild members: {e}").into(),
+                    LogType::Error,
+                )
+                .ok();
+            }
+
+            state.selected_guild = Some(selected_guild.clone());
 
             let tx_clone = tx_action.clone();
 
@@ -234,12 +308,15 @@ async fn input_submit(
 
             tokio::spawn(async move {
                 tx_clone
-                    .send(AppAction::TransitionToLoading(Window::Channel(
-                        guild_id_clone.clone(),
-                    )))
+                    .send(AppAction::TransitionToLoading(Window::Channel(Box::new(
+                        selected_guild.clone(),
+                    ))))
                     .await
                     .ok();
-                match api_client_clone.get_guild_channels(&guild_id_clone).await {
+                match api_client_clone
+                    .get_guild_channels(selected_guild.id.as_str())
+                    .await
+                {
                     Ok(channels) => {
                         tx_clone
                             .send(AppAction::ApiUpdateChannel(channels))
@@ -253,7 +330,10 @@ async fn input_submit(
                         );
                     }
                 }
-                match api_client_clone.get_guild_emojis(&guild_id_clone).await {
+                match api_client_clone
+                    .get_guild_emojis(selected_guild.id.as_str())
+                    .await
+                {
                     Ok(emojis) => {
                         tx_clone.send(AppAction::ApiUpdateEmojis(emojis)).await.ok();
                     }
@@ -265,7 +345,7 @@ async fn input_submit(
                     }
                 }
                 match api_client_clone
-                    .get_permission_context(&guild_id_clone)
+                    .get_permission_context(selected_guild.id.as_str())
                     .await
                 {
                     Ok(context) => {
@@ -275,21 +355,22 @@ async fn input_submit(
                             .ok();
                     }
                     Err(e) => {
-                        let _ = print_log(
+                        print_log(
                             format!("Failed to load permission context: {e}").into(),
                             LogType::Error,
-                        );
+                        )
+                        .ok();
                     }
                 }
 
                 tx_clone.send(AppAction::EndLoading).await.ok();
             });
         }
-        AppState::SelectingChannel(_, _) => {
+        AppState::SelectingChannel(_) => {
             let permission_context = &state.context;
             let mut text_channels: Vec<&Channel> = Vec::new();
 
-            let filter_text = state.input.to_lowercase();
+            let filter_text = state.search_input.to_lowercase();
             let should_display_channel_content = |c: &Channel| {
                 let is_readable = permission_context
                     .as_ref()
@@ -339,32 +420,34 @@ async fn input_submit(
                 return Some(KeywordAction::Continue);
             }
 
-            let channel_info = {
-                let selected_channel = &text_channels[state.selection_index];
-                (selected_channel.id.clone(), selected_channel.name.clone())
-            };
-            let (channel_id_clone, selected_channel_name) = channel_info;
+            let selected_channel = text_channels[state.selection_index].clone();
 
             tx_action
-                .send(AppAction::TransitionToLoading(Window::Chat(
-                    channel_id_clone.clone(),
-                )))
+                .send(AppAction::TransitionToLoading(Window::Chat(Box::new(
+                    AnyChannel::Guild(selected_channel.clone()),
+                ))))
                 .await
                 .ok();
 
             state.input = String::new();
             state.cursor_position = 0;
-            state.status_message = format!("Loading messages for {selected_channel_name}...");
+            state.status_message = format!("Loading messages for {}...", selected_channel.name);
 
             match state
                 .api_client
-                .get_channel_messages(&channel_id_clone, None, None, None, Some(100))
+                .get_channel_messages(
+                    selected_channel.id.clone().as_str(),
+                    None,
+                    None,
+                    None,
+                    Some(100),
+                )
                 .await
             {
                 Ok(messages) => {
                     if let Err(e) = tx_action
                         .send(AppAction::ApiUpdateMessages(
-                            channel_id_clone.clone(),
+                            selected_channel.id.clone(),
                             messages,
                         ))
                         .await
@@ -384,7 +467,7 @@ async fn input_submit(
 
             tx_action.send(AppAction::EndLoading).await.ok();
         }
-        AppState::EmojiSelection(channel_id, _) => {
+        AppState::EmojiSelection(channel) => {
             let start_pos = state.emoji_filter_start?;
             let end_pos = start_pos + ':'.len_utf8() + state.emoji_filter.len();
 
@@ -429,15 +512,8 @@ async fn input_submit(
                     state.cursor_position = pos;
                 }
             }
-            let channel_name = match state.api_client.get_channel(channel_id.as_str()).await {
-                Ok(c) => c.name,
-                Err(e) => {
-                    print_log(e, LogType::Error).ok();
-                    "<Empty Name>".to_string()
-                }
-            };
 
-            state.state = AppState::Chatting(channel_id.clone(), channel_name);
+            state.state = AppState::Chatting(channel.clone());
             state.emoji_filter.clear();
             state.emoji_filter_start = None;
             state.emoji_index = 0;
@@ -445,8 +521,9 @@ async fn input_submit(
                 "Chatting in channel. Press Enter to send message, Esc to return to channels."
                     .to_string();
         }
-        AppState::Editing(channel_id, _, message, _) => {
-            let (channel_id_clone, message_id_clone) = (channel_id.clone(), message.id.clone());
+        AppState::Editing(channel, message, _) => {
+            let (channel_id_clone, message_id_clone) =
+                (channel.get_id().clone(), message.id.clone());
             let content = state.input.drain(..).collect::<String>();
 
             let message_data = if content.is_empty() {
@@ -482,7 +559,7 @@ async fn input_submit(
                                 ))
                                 .await;
                             let _ = tx_action_clone
-                                .send(AppAction::TransitionToChat(channel_id_clone))
+                                .send(AppAction::TransitionToChat(channel.clone()))
                                 .await
                                 .ok();
                         }
@@ -493,8 +570,8 @@ async fn input_submit(
                 });
             }
         }
-        AppState::Chatting(channel_id, _) => {
-            let channel_id_clone = channel_id.clone();
+        AppState::Chatting(channel) => {
+            let channel_id_clone = channel.get_id().clone();
 
             let content = state.input.drain(..).collect::<String>();
             state.cursor_position = 0;
@@ -508,9 +585,50 @@ async fn input_submit(
             if let Some((channel_id_clone, content)) = message_data {
                 let api_client_clone = state.api_client.clone();
 
+                let mut members = std::collections::HashSet::new();
+                let tmp = content.clone();
+                let mut temp_content = tmp.as_str();
+
+                while let Some(start_idx) = temp_content.find("@") {
+                    let after_prefix = &temp_content[start_idx + 1..];
+                    if let Some(end_idx) = after_prefix.find(' ') {
+                        let member = &after_prefix[..end_idx];
+                        if member.chars().all(|c| c.is_ascii_alphanumeric()) {
+                            members.insert(member.to_string());
+                        }
+                        temp_content = &after_prefix[end_idx..];
+                    } else {
+                        let end_idx = temp_content.len().saturating_sub(1);
+                        let member = &after_prefix[..end_idx];
+                        if member.chars().all(|c| c.is_ascii_alphanumeric()) {
+                            members.insert(member.to_string());
+                        }
+                        break;
+                    }
+                }
+
+                let mut map_usernames: std::collections::HashMap<String, String> =
+                    std::collections::HashMap::new();
+                for member in members {
+                    if let Some(guild_member) = state
+                        .guild_members
+                        .iter()
+                        .find(|gm| gm.user.username == member)
+                    {
+                        map_usernames.insert(member.clone(), guild_member.user.id.clone());
+                    }
+                }
+
+                let mut final_content = content.clone();
+                for (name, id) in map_usernames {
+                    let pattern = format!("@{name}");
+                    let replacement = format!("<@{id}>");
+                    final_content = final_content.replace(&pattern, &replacement);
+                }
+
                 tokio::spawn(async move {
                     match api_client_clone
-                        .create_message(&channel_id_clone, Some(content), false)
+                        .create_message(&channel_id_clone, Some(final_content), false)
                         .await
                     {
                         Ok(_) => {}
@@ -566,9 +684,9 @@ async fn move_selection(state: &mut MutexGuard<'_, App>, n: i32, total_filtered_
                 }
             }
         }
-        AppState::SelectingChannel(_, _) => {
+        AppState::SelectingChannel(_) => {
             if !state.channels.is_empty() {
-                let filter_text = state.input.to_lowercase();
+                let filter_text = state.search_input.to_lowercase();
                 let permission_context = &state.context;
 
                 let should_display_content = |c: &Channel| {
@@ -626,7 +744,7 @@ async fn move_selection(state: &mut MutexGuard<'_, App>, n: i32, total_filtered_
                 }
             }
         }
-        AppState::EmojiSelection(_, _) => {
+        AppState::EmojiSelection(_) => {
             if total_filtered_emojis > 0 {
                 if n < 0 {
                     state.emoji_index = if state.emoji_index == 0 {
@@ -647,7 +765,7 @@ fn handle_user_typing(state: &mut App) {
     if state.silent_typing {
         return;
     }
-    if let AppState::Chatting(channel_id, _) = &state.state {
+    if let AppState::Chatting(channel) = &state.state {
         let now = std::time::Instant::now();
         let should_send = state
             .last_typing_sent
@@ -655,7 +773,7 @@ fn handle_user_typing(state: &mut App) {
         if should_send && !state.input.is_empty() {
             state.last_typing_sent = Some(now);
             let api_client_clone = state.api_client.clone();
-            let channel_id_clone = channel_id.clone();
+            let channel_id_clone = channel.get_id().clone();
             tokio::spawn(async move {
                 let _ = api_client_clone
                     .trigger_typing_indicator(&channel_id_clone)
@@ -670,16 +788,14 @@ pub async fn handle_keys_events(
     action: AppAction,
     tx_action: Sender<AppAction>,
 ) -> Option<KeywordAction> {
-    let state_clone = state.clone();
-    let filtered_unicode: Vec<&(String, String)> = state_clone
-        .emoji_map
+    let emoji_map_clone = state.emoji_map.clone();
+    let filtered_unicode: Vec<&(String, String)> = emoji_map_clone
         .iter()
         .filter(|(name, _)| name.starts_with(&state.emoji_filter))
         .collect();
 
-    let state_clone = state.clone();
-    let filtered_custom: Vec<&Emoji> = state_clone
-        .custom_emojis
+    let custom_emojis_clone = state.custom_emojis.clone();
+    let filtered_custom: Vec<&Emoji> = custom_emojis_clone
         .iter()
         .filter(|e| e.name.starts_with(&state.emoji_filter))
         .collect();
@@ -691,8 +807,15 @@ pub async fn handle_keys_events(
         AppAction::InputEscape => {
             // In vim mode, Esc switches from Insert to Normal mode and returns early.
             // In non-vim mode (or vim Normal mode), Esc triggers navigation (handled below).
-            if state.vim_mode && state.mode == InputMode::Insert {
+            if state.vim_mode && state.mode == InputMode::Insert
+                || state.mode == InputMode::Command
+                || state.mode == InputMode::Search
+            {
                 state.mode = InputMode::Normal;
+                if state.mode == InputMode::Command || state.mode == InputMode::Search {
+                    state.input = state.saved_input.clone().unwrap_or_default();
+                    state.saved_input = None;
+                }
                 let pos = if state.cursor_position <= state.input.len() && state.cursor_position > 0
                 {
                     state.cursor_position
@@ -711,22 +834,33 @@ pub async fn handle_keys_events(
             }
             // Navigation logic: go back to previous screen or quit
             match &state.state {
-                AppState::Home | AppState::Loading(_) => return Some(KeywordAction::Break),
+                AppState::Home | AppState::Loading(_) => {}
                 AppState::SelectingDM => {
                     tx_action.send(AppAction::TransitionToHome).await.ok();
                 }
                 AppState::SelectingGuild => {
                     tx_action.send(AppAction::TransitionToHome).await.ok();
                 }
-                AppState::SelectingChannel(_, _) => {
+                AppState::SelectingChannel(_) => {
+                    state.guild_members = Vec::new();
+                    state.selected_guild = None;
                     tx_action.send(AppAction::TransitionToGuilds).await.ok();
                 }
-                AppState::Chatting(channel_id, _) => {
-                    let channel = match state.api_client.get_channel(&channel_id.clone()).await {
-                        Ok(c) => c,
+                AppState::Chatting(channel) => {
+                    let channel = match state
+                        .api_client
+                        .get_channel(channel.get_id().as_str())
+                        .await
+                    {
+                        Ok(c) => match c {
+                            AnyChannel::Guild(ch) => ch,
+                            AnyChannel::Direct(_) => {
+                                tx_action.send(AppAction::TransitionToDM).await.ok();
+                                return None;
+                            }
+                        },
                         Err(e) => {
-                            tx_action.send(AppAction::TransitionToHome).await.ok();
-                            state.status_message = format!("{e}");
+                            print_log(e, LogType::Error).ok();
                             return None;
                         }
                     };
@@ -735,25 +869,49 @@ pub async fn handle_keys_events(
                         tx_action.send(AppAction::TransitionToDM).await.ok();
                     } else {
                         match channel.guild_id {
-                            Some(guild_id) => tx_action
-                                .send(AppAction::TransitionToChannels(guild_id.clone()))
-                                .await
-                                .ok(),
+                            Some(guild_id) => {
+                                let guild = state.api_client.get_guild(guild_id.as_str()).await;
+                                if let Ok(guild) = guild {
+                                    tx_action
+                                        .send(AppAction::TransitionToChannels(Box::new(
+                                            guild.clone(),
+                                        )))
+                                        .await
+                                        .ok()
+                                } else {
+                                    tx_action.send(AppAction::TransitionToGuilds).await.ok()
+                                }
+                            }
                             None => tx_action.send(AppAction::TransitionToGuilds).await.ok(),
                         };
                     }
                 }
-                AppState::EmojiSelection(channel_id, _) => {
+                AppState::EmojiSelection(channel) => {
                     tx_action
-                        .send(AppAction::TransitionToChat(channel_id.clone()))
+                        .send(AppAction::TransitionToChat(channel.clone()))
                         .await
                         .ok();
                 }
-                AppState::Editing(channel_id, _, _, _) => {
+                AppState::Editing(channel, _, _) => {
                     tx_action
-                        .send(AppAction::TransitionToChat(channel_id.clone()))
+                        .send(AppAction::TransitionToChat(channel.clone()))
                         .await
                         .ok();
+                }
+                AppState::Logs(redirect) => {
+                    match redirect {
+                        Window::Home => tx_action.send(AppAction::TransitionToHome).await.ok(),
+                        Window::Guild => tx_action.send(AppAction::TransitionToGuilds).await.ok(),
+                        Window::DM => tx_action.send(AppAction::TransitionToDM).await.ok(),
+                        Window::Channel(guild) => tx_action
+                            .send(AppAction::TransitionToChannels(guild.clone()))
+                            .await
+                            .ok(),
+                        Window::Chat(channel) => tx_action
+                            .send(AppAction::TransitionToChat(channel.clone()))
+                            .await
+                            .ok(),
+                    };
                 }
             }
         }
@@ -781,7 +939,7 @@ pub async fn handle_keys_events(
                     InputMode::Normal => {
                         vim::handle_vim_keys(state, c, tx_action).await;
                     }
-                    InputMode::Insert => {
+                    InputMode::Insert | InputMode::Command | InputMode::Search => {
                         insert_char_at_cursor(&mut state, tx_action.clone(), c);
                         handle_user_typing(&mut state);
                     }
@@ -789,8 +947,8 @@ pub async fn handle_keys_events(
             }
         }
         AppAction::SelectEmoji => {
-            if let AppState::Chatting(channel_id, channel_name)
-            | AppState::Editing(channel_id, channel_name, _, _) = &mut state.clone().state
+            if let AppState::Chatting(channel) | AppState::Editing(channel, _, _) =
+                state.state.clone()
             {
                 let cursor_pos = std::cmp::min(state.cursor_position, state.input.len());
                 let is_start_of_emoji = cursor_pos == 0 || state.input[..cursor_pos].ends_with(' ');
@@ -801,8 +959,8 @@ pub async fn handle_keys_events(
                     state.emoji_filter_start = Some(pos);
                     state.input.insert(pos, ':');
                     state.cursor_position += ':'.len_utf8();
-                    let owned_channel_id = channel_id.clone();
-                    state.state = AppState::EmojiSelection(owned_channel_id, channel_name.clone());
+                    let owned_channel = channel.clone();
+                    state.state = AppState::EmojiSelection(owned_channel);
                     state.status_message =
                         "Type to filter emoji. Enter to select. Esc to cancel.".to_string();
                     state.emoji_filter.clear();
@@ -821,9 +979,32 @@ pub async fn handle_keys_events(
                 }
                 return None;
             }
+            if state.vim_mode
+                && (state.mode == InputMode::Command || state.mode == InputMode::Search)
+                && state.input.is_empty()
+            {
+                state.mode = InputMode::Normal;
+                state.input = state.saved_input.clone().unwrap_or_default();
+                state.saved_input = None;
+                let pos = if state.cursor_position <= state.input.len() && state.cursor_position > 0
+                {
+                    state.cursor_position
+                } else {
+                    state.input.len()
+                };
+                if let Some(c) = state.input[..pos].chars().next_back()
+                    && c != '\n'
+                {
+                    state.cursor_position = state.cursor_position.saturating_sub(c.len_utf8());
+                }
+                if !(state.cursor_position == state.input.len() && state.input.ends_with('\n')) {
+                    vim::clamp_cursor(&mut state);
+                }
+                return None;
+            }
             let current_state = state.state.clone();
             match current_state {
-                AppState::Chatting(_, _) => {
+                AppState::Chatting(_) => {
                     let pos = state.cursor_position;
                     if let Some(c) = state.input[..pos].chars().next_back() {
                         let char_len = c.len_utf8();
@@ -832,7 +1013,7 @@ pub async fn handle_keys_events(
                     }
                     handle_user_typing(&mut state);
                 }
-                AppState::EmojiSelection(channel_id, channel_name) => {
+                AppState::EmojiSelection(channel) => {
                     let pos = state.cursor_position;
                     if let Some(c) = state.input[..pos].chars().next_back() {
                         let char_len = c.len_utf8();
@@ -859,8 +1040,7 @@ pub async fn handle_keys_events(
                             state.emoji_filter.clear();
                         }
                         if state.emoji_filter.is_empty() {
-                            state.state =
-                                AppState::Chatting(channel_id.clone(), channel_name.clone());
+                            state.state = AppState::Chatting(channel.clone());
                             state.emoji_filter_start = None;
                             state.status_message =
                                 "Chatting in channel. Press Enter to send message. Esc to return to channels"
@@ -888,7 +1068,7 @@ pub async fn handle_keys_events(
         AppAction::InputDelete => {
             let current_state = state.state.clone();
             match current_state {
-                AppState::Chatting(_, _) => {
+                AppState::Chatting(_) => {
                     if !state.input.is_empty() {
                         let pos = {
                             if state.cursor_position >= state.input.len() {
@@ -903,7 +1083,7 @@ pub async fn handle_keys_events(
                     }
                     handle_user_typing(&mut state);
                 }
-                AppState::EmojiSelection(channel_id, channel_name) => {
+                AppState::EmojiSelection(channel) => {
                     let pos = state.cursor_position + 1;
                     if let Some(c) = state.input[..pos].chars().next_back() {
                         let char_len = c.len_utf8();
@@ -930,8 +1110,7 @@ pub async fn handle_keys_events(
                         }
 
                         if state.emoji_filter.is_empty() {
-                            state.state =
-                                AppState::Chatting(channel_id.clone(), channel_name.clone());
+                            state.state = AppState::Chatting(channel.clone());
                             state.emoji_filter_start = None;
                             state.status_message =
                                 "Chatting in channel. Press Enter to send message. Esc to return to channels"
@@ -973,10 +1152,10 @@ pub async fn handle_keys_events(
         }
         AppAction::ApiUpdateMessages(channel_id, new_messages) => {
             let is_relevant = match &state.state {
-                AppState::Loading(Window::Chat(id)) => id == &channel_id,
-                AppState::Chatting(id, _) => id == &channel_id,
-                AppState::Editing(id, _, _, _) => id == &channel_id,
-                AppState::EmojiSelection(id, _) => id == &channel_id,
+                AppState::Loading(Window::Chat(channel)) => channel.get_id() == channel_id,
+                AppState::Chatting(channel) => channel.get_id() == channel_id,
+                AppState::Editing(channel, _, _) => channel.get_id() == channel_id,
+                AppState::EmojiSelection(channel) => channel.get_id() == channel_id,
                 _ => false,
             };
             if !is_relevant {
@@ -984,9 +1163,41 @@ pub async fn handle_keys_events(
             }
 
             if let Some(newest_msg) = new_messages.iter().max_by_key(|m| &m.id) {
-                state
-                    .last_message_ids
-                    .insert(channel_id, newest_msg.id.clone());
+                // Check if the newest message is newer than what we currently have
+                let should_ack = if let Some(last_id) = state.last_message_ids.get(&channel_id) {
+                    // Message IDs can be compared as u64 safely
+                    let new_id_num = newest_msg.id.parse::<u64>().unwrap_or_default();
+                    let last_id_num = last_id.parse::<u64>().unwrap_or_default();
+                    new_id_num > last_id_num
+                } else {
+                    true
+                };
+
+                if should_ack {
+                    state
+                        .last_message_ids
+                        .insert(channel_id.clone(), newest_msg.id.clone());
+
+                    let api_client_clone = state.api_client.clone();
+                    let channel_id_clone = channel_id.clone();
+                    let msg_id_clone = newest_msg.id.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = api_client_clone
+                            .ack_message(&channel_id_clone, &msg_id_clone)
+                            .await
+                        {
+                            print_log(format!("Failed to ack message: {e}").into(), LogType::Error)
+                                .ok();
+                        }
+                    });
+                }
+            }
+
+            // Clear any active desktop notifications for this channel
+            if let Some(handles) = state.active_notifications.remove(&channel_id) {
+                for handle in handles {
+                    handle.close();
+                }
             }
             // Seed the username cache from all loaded message authors
             for msg in &new_messages {
@@ -1021,7 +1232,17 @@ pub async fn handle_keys_events(
         AppAction::ApiUpdateEmojis(new_emojis) => {
             state.custom_emojis = new_emojis;
         }
-        AppAction::ApiUpdateDMs(new_dms) => {
+        AppAction::ApiUpdateDMs(mut new_dms) => {
+            // Sort DMs by newest last_message_id
+            new_dms.sort_by_key(|dm| {
+                std::cmp::Reverse(
+                    dm.last_message_id
+                        .as_deref()
+                        .unwrap_or("0")
+                        .parse::<u64>()
+                        .unwrap_or(0),
+                )
+            });
             state.dms = new_dms.clone();
 
             // Initialize last_message_ids for all DMs on load and seed username cache
@@ -1064,10 +1285,9 @@ pub async fn handle_keys_events(
                 state.user_names.insert(user_id, name);
             }
         }
-
         AppAction::GatewayMessageCreate(msg) => {
-            let active_channel_id = if let AppState::Chatting(id, _) = &state.state {
-                Some(id.clone())
+            let active_channel_id = if let AppState::Chatting(channel) = &state.state {
+                Some(channel.get_id().clone())
             } else {
                 None
             };
@@ -1082,6 +1302,19 @@ pub async fn handle_keys_events(
                 // Sort by descending ID: newest messages first (to match REST API response)
                 msgs.sort_by_key(|m| std::cmp::Reverse(m.id.parse::<u64>().unwrap_or_default()));
                 state.messages = msgs;
+
+                state
+                    .last_message_ids
+                    .insert(msg.channel_id.clone(), msg.id.clone());
+
+                let api_client_clone = state.api_client.clone();
+                let channel_id_clone = msg.channel_id.clone();
+                let msg_id_clone = msg.id.clone();
+                tokio::spawn(async move {
+                    let _ = api_client_clone
+                        .ack_message(&channel_id_clone, &msg_id_clone)
+                        .await;
+                });
             } else if state.dms.iter().any(|dm| dm.id == msg.channel_id) {
                 // If it's a DM and we're not actively viewing it, maybe notify
                 let is_self = state
@@ -1098,12 +1331,27 @@ pub async fn handle_keys_events(
                             .clone()
                             .unwrap_or_else(|| "Sent an attachment".to_string())
                     };
-                    let _ = notify_rust::Notification::new()
+                    if let Ok(handle) = notify_rust::Notification::new()
                         .summary(&sender)
                         .body(&content)
                         .appname("vimcord")
-                        .show();
+                        .show()
+                    {
+                        state
+                            .active_notifications
+                            .entry(msg.channel_id.clone())
+                            .or_default()
+                            .push(handle);
+                    }
                 }
+
+                // Jump this DM to the top of the list
+                if let Some(pos) = state.dms.iter().position(|dm| dm.id == msg.channel_id) {
+                    let mut dm = state.dms.remove(pos);
+                    dm.last_message_id = Some(msg.id.clone());
+                    state.dms.insert(0, dm);
+                }
+
                 state
                     .last_message_ids
                     .insert(msg.channel_id.clone(), msg.id.clone());
@@ -1113,6 +1361,18 @@ pub async fn handle_keys_events(
             if let Some(typers) = state.typing_users.get_mut(&msg.channel_id) {
                 typers.remove(&msg.author.id);
             }
+        }
+        AppAction::GatewayReadySupplemental(statuses) => {
+            state.user_statuses.extend(statuses);
+        }
+        AppAction::GatewayPresenceUpdate(user_id, status) => {
+            state.user_statuses.insert(user_id, status);
+        }
+        AppAction::GatewayGuildMembersChunk(_, members, _, chunk_count) => {
+            if chunk_count.parse::<usize>().unwrap_or_default() == 0 {
+                state.guild_members = Vec::new();
+            }
+            state.guild_members.extend(members);
         }
         AppAction::GatewayMessageUpdate(msg) => {
             let mut msgs = state.messages.clone();
@@ -1137,26 +1397,19 @@ pub async fn handle_keys_events(
             state.messages = msgs;
             state.deleted_message_ids.insert(id);
         }
-        AppAction::TransitionToChannels(guild_id) => {
-            let guild_name = match state.api_client.get_guild(guild_id.as_str()).await {
-                Ok(g) => g.name,
-                Err(e) => {
-                    print_log(e, LogType::Error).ok();
-                    "<Empty Name>".to_string()
-                }
-            };
-
+        AppAction::TransitionToChannels(guild) => {
             state.input = String::new();
+            state.search_input = String::new();
             state.cursor_position = 0;
-            state.state = AppState::SelectingChannel(guild_id.clone(), guild_name);
+            state.state = AppState::SelectingChannel(guild.clone());
             state.status_message =
                 "Select a server. Use arrows to navigate, Enter to select & Esc to quit"
                     .to_string();
             state.selection_index = 0;
         }
-        AppAction::TransitionToChat(channel_id) => {
+        AppAction::TransitionToChat(channel) => {
             // Check if we're coming from emoji selection before changing state
-            if let AppState::EmojiSelection(_, _) = &state.state {
+            if let AppState::EmojiSelection(_) = &state.state {
                 // Remove the trailing ':' and filter text if canceling emoji selection
                 if let Some(start) = state.emoji_filter_start {
                     let end = start + ':'.len_utf8() + state.emoji_filter.len();
@@ -1169,19 +1422,13 @@ pub async fn handle_keys_events(
                 state.emoji_filter_start = None;
                 state.selection_index = 0;
             }
-            if let AppState::Editing(_, _, _, _) = &state.state {
+            if let AppState::Editing(_, _, _) = &state.state {
                 state.input = state.saved_input.clone().unwrap_or_default();
                 state.saved_input = None;
             }
-            let channel_name = match state.api_client.get_channel(channel_id.as_str()).await {
-                Ok(c) => c.name,
-                Err(e) => {
-                    print_log(e, LogType::Error).ok();
-                    "<Empty Name>".to_string()
-                }
-            };
 
-            state.state = AppState::Chatting(channel_id.clone(), channel_name);
+            state.state = AppState::Chatting(channel);
+            state.search_input = String::new();
             state.chat_scroll_offset = 0;
             state.cursor_position = 0;
             state.selection_index = 0;
@@ -1192,6 +1439,7 @@ pub async fn handle_keys_events(
         }
         AppAction::TransitionToGuilds => {
             state.input = String::new();
+            state.search_input = String::new();
             state.cursor_position = 0;
             state.state = AppState::SelectingGuild;
             state.status_message =
@@ -1201,6 +1449,7 @@ pub async fn handle_keys_events(
         }
         AppAction::TransitionToDM => {
             state.input = String::new();
+            state.search_input = String::new();
             state.cursor_position = 0;
             state.state = AppState::SelectingDM;
             state.status_message =
@@ -1253,9 +1502,8 @@ pub async fn handle_keys_events(
                 }
             });
         }
-        AppAction::TransitionToEditing(channel_id, message, content, c) => {
-            let (channel_id_clone, message_clone, content_clone) =
-                (channel_id.clone(), message.clone(), content.clone());
+        AppAction::TransitionToEditing(channel, message, content, c) => {
+            let (message_clone, content_clone) = (message.clone(), content.clone());
 
             state.saved_input = Some(state.input.clone());
             state.input = content.clone();
@@ -1274,27 +1522,16 @@ pub async fn handle_keys_events(
                 _ => content.len(),
             };
 
-            let channel_name = match state.api_client.get_channel(channel_id.as_str()).await {
-                Ok(c) => c.name,
-                Err(e) => {
-                    print_log(e, LogType::Error).ok();
-                    "<Empty Name>".to_string()
-                }
-            };
-
             state.selection_index = 0;
-            state.state = AppState::Editing(
-                channel_id_clone,
-                channel_name.clone(),
-                Box::new(message_clone),
-                content_clone,
-            );
+            state.state =
+                AppState::Editing(channel.clone(), Box::new(message_clone), content_clone);
             state.status_message =
                 "Editing a message in channel. Press Enter to send message. Esc to return to channels"
                     .to_string();
         }
         AppAction::TransitionToHome => {
             state.input = String::new();
+            state.search_input = String::new();
             state.cursor_position = 0;
             state.state = AppState::Home;
             state.status_message = "Browse either DMs or Servers. Use arrows to navigate, Enter to select & Esc to quit".to_string();
@@ -1304,23 +1541,35 @@ pub async fn handle_keys_events(
             state.state = AppState::Loading(redirect_state);
             state.status_message = "Loading...".to_string();
         }
-        AppAction::EndLoading => {
-            if let AppState::Loading(redirect) = &state.clone().state {
-                match redirect {
-                    Window::Home => tx_action.send(AppAction::TransitionToHome).await.ok(),
-                    Window::Guild => tx_action.send(AppAction::TransitionToGuilds).await.ok(),
-                    Window::DM => tx_action.send(AppAction::TransitionToDM).await.ok(),
-                    Window::Channel(guild_id) => tx_action
-                        .send(AppAction::TransitionToChannels(guild_id.clone()))
-                        .await
-                        .ok(),
-                    Window::Chat(channel_id) => tx_action
-                        .send(AppAction::TransitionToChat(channel_id.clone()))
-                        .await
-                        .ok(),
-                };
-            }
+        AppAction::TransitionToLogs => {
+            let window = match &state.state {
+                AppState::SelectingGuild => Window::Guild,
+                AppState::SelectingDM => Window::DM,
+                AppState::SelectingChannel(guild) => Window::Channel(guild.clone()),
+                AppState::Chatting(ch)
+                | AppState::EmojiSelection(ch)
+                | AppState::Editing(ch, _, _) => Window::Chat(ch.clone()),
+                _ => Window::Home,
+            };
+            state.state = AppState::Logs(window);
+            state.status_message = "Reading Logs".to_string();
         }
+        AppAction::EndLoading | AppAction::EndLogs => match &state.state {
+            AppState::Loading(redirect) | AppState::Logs(redirect) => match redirect {
+                Window::Home => tx_action.send(AppAction::TransitionToHome).await.ok(),
+                Window::Guild => tx_action.send(AppAction::TransitionToGuilds).await.ok(),
+                Window::DM => tx_action.send(AppAction::TransitionToDM).await.ok(),
+                Window::Channel(guild) => tx_action
+                    .send(AppAction::TransitionToChannels(guild.clone()))
+                    .await
+                    .ok(),
+                Window::Chat(channel) => tx_action
+                    .send(AppAction::TransitionToChat(channel.clone()))
+                    .await
+                    .ok(),
+            },
+            _ => None,
+        }?,
         AppAction::TransitionToLoadingMessages => {
             state.is_loading = true;
             state.status_message = "Loading Messages...".to_string();

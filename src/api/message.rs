@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::Deserialize;
 
-use crate::api::User;
+use crate::api::{Guild, User};
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Message {
@@ -24,13 +24,14 @@ pub struct PartialMessage {
 }
 
 impl Message {
-    pub fn map_mentions(&self) -> String {
+    pub fn map_mentions(&self, guild: Option<Guild>) -> String {
         let Some(content) = self.content.as_ref() else {
             return "(*non-text*)".to_string();
         };
 
         let mut ids = std::collections::HashSet::new();
-        let mut temp_content = content.as_str();
+        let tmp = content.clone();
+        let mut temp_content = tmp.as_str();
 
         while let Some(start_idx) = temp_content.find("<@") {
             let after_prefix = &temp_content[start_idx + 2..];
@@ -43,10 +44,6 @@ impl Message {
             } else {
                 break;
             }
-        }
-
-        if ids.is_empty() {
-            return self.content.clone().unwrap_or("(*non-text*)".to_string());
         }
 
         let mut mentionned_users = std::collections::HashMap::new();
@@ -66,6 +63,43 @@ impl Message {
             let pattern = format!("<@{id}>");
             let replacement = format!("@{name}");
             final_content = final_content.replace(&pattern, &replacement);
+        }
+
+        if let Some(guild) = guild {
+            let mut role_ids = std::collections::HashSet::new();
+            let tmp = content.clone();
+            let mut temp_content = tmp.as_str();
+
+            while let Some(start_idx) = temp_content.find("<@&") {
+                let after_prefix = &temp_content[start_idx + 3..];
+                if let Some(end_idx) = after_prefix.find('>') {
+                    let role_id = &after_prefix[..end_idx];
+                    if role_id.chars().all(|c| c.is_ascii_digit()) {
+                        role_ids.insert(role_id.to_string());
+                    }
+                    temp_content = &after_prefix[end_idx + 1..];
+                } else {
+                    break;
+                }
+            }
+
+            let mut mentionned_roles = std::collections::HashMap::new();
+            for role in guild.roles {
+                mentionned_roles.insert(role.id, role.name);
+            }
+
+            let mut map_roles: HashMap<String, String> = std::collections::HashMap::new();
+            for role_id in role_ids {
+                if let Some(name) = mentionned_roles.get(&role_id) {
+                    map_roles.insert(role_id, name.clone());
+                }
+            }
+
+            for (id, name) in map_roles {
+                let pattern = format!("<@&{id}>");
+                let replacement = format!("@{name}");
+                final_content = final_content.replace(&pattern, &replacement);
+            }
         }
 
         final_content

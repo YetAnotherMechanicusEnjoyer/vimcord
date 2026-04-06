@@ -2,13 +2,17 @@ use std::time::Instant;
 use tokio::sync::{MutexGuard, mpsc::Sender};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use crate::{App, AppAction, AppState, InputMode};
+use crate::{
+    App, AppAction, AppState, InputMode,
+    api::{Channel, DM, guild::PartialGuild},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum VimOperator {
     Delete,
     _Change,
     _Yank,
+    Goto,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -216,6 +220,9 @@ fn execute_operator(state: &mut MutexGuard<'_, App>, operator: VimOperator, rang
         VimOperator::_Yank => {
             // Not implemented yet
         }
+        VimOperator::Goto => {
+            todo!();
+        }
     }
 }
 
@@ -245,7 +252,7 @@ pub async fn handle_vim_keys(
     // or when mutating state later.
     let current_operator = state.vim_state.as_ref().unwrap().operator;
 
-    if let AppState::Chatting(channel_id, _) = &state.state
+    if let AppState::Chatting(channel) = &state.state
         && state.selection_index > 0
         && ['i', 'I', 'a', 'A'].contains(&c)
     {
@@ -259,7 +266,7 @@ pub async fn handle_vim_keys(
         {
             tx_action
                 .send(AppAction::TransitionToEditing(
-                    channel_id.clone(),
+                    channel.clone(),
                     msg.clone(),
                     msg.content.clone().unwrap_or_default(),
                     c,
@@ -297,7 +304,7 @@ pub async fn handle_vim_keys(
             state.mode = InputMode::Insert;
         }
         'O' => {
-            if let AppState::Chatting(_, _) = &state.state
+            if let AppState::Chatting(_) = &state.state
                 && state.selection_index > 0
             {
                 return;
@@ -311,7 +318,7 @@ pub async fn handle_vim_keys(
             state.mode = InputMode::Insert;
         }
         'o' => {
-            if let AppState::Chatting(_, _) = &state.state
+            if let AppState::Chatting(_) = &state.state
                 && state.selection_index > 0
             {
                 return;
@@ -332,7 +339,7 @@ pub async fn handle_vim_keys(
             state.mode = InputMode::Insert;
         }
         'j' => {
-            if let AppState::Chatting(_, _) = &state.state {
+            if let AppState::Chatting(_) | AppState::Logs(_) = &state.state {
                 if state.selection_index > 0 {
                     state.selection_index -= 1;
                 } else {
@@ -379,7 +386,7 @@ pub async fn handle_vim_keys(
             }
         }
         'k' => {
-            if let AppState::Chatting(channel_id, _) = &state.state {
+            if let AppState::Chatting(channel) = &state.state {
                 if state.selection_index != 0 {
                     if state.selection_index < state.messages.len() {
                         state.selection_index += 1;
@@ -393,7 +400,7 @@ pub async fn handle_vim_keys(
                             let older_msgs = state
                                 .api_client
                                 .get_channel_messages(
-                                    &channel_id.clone(),
+                                    &channel.get_id().clone(),
                                     None,
                                     Some(oldest.id.clone()),
                                     None,
@@ -452,6 +459,64 @@ pub async fn handle_vim_keys(
                         state.selection_index = 1;
                     }
                 }
+            } else if let AppState::Logs(_) = &state.state {
+                if state.selection_index != 0 {
+                    if state.selection_index < state.logs.len() {
+                        state.selection_index += 1;
+                    } else {
+                        if let Some(_oldest) = state.logs.last() {
+                            let older_msgs: Result<Vec<crate::Message>, crate::Error> =
+                                Ok(Vec::new()); // todo
+
+                            if let Ok(new_messages) = older_msgs {
+                                for msg in new_messages.into_iter() {
+                                    state.messages.push(msg);
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    let current_pos = state.cursor_position;
+                    let current_column_width = {
+                        let current_line_start = state.input[..current_pos]
+                            .rfind('\n')
+                            .map(|i| i + 1)
+                            .unwrap_or(0);
+                        UnicodeWidthStr::width(&state.input[current_line_start..current_pos])
+                    };
+
+                    let input_before = &state.input[..current_pos];
+
+                    if let Some(last_newline) = input_before.rfind('\n') {
+                        let prev_line_start = state.input[..last_newline]
+                            .rfind('\n')
+                            .map(|i| i + 1)
+                            .unwrap_or(0);
+                        let prev_line_end = last_newline;
+                        let prev_line_str = &state.input[prev_line_start..prev_line_end];
+
+                        let mut target_offset = 0;
+                        let mut current_width = 0;
+                        for c in prev_line_str.chars() {
+                            let w = c.width().unwrap_or(0); // Optimization: avoid c.to_string() allocation
+                            if current_width + w > current_column_width {
+                                break;
+                            }
+                            current_width += w;
+                            target_offset += c.len_utf8();
+                        }
+                        if target_offset == prev_line_str.len()
+                            && target_offset > 0
+                            && let Some(last_char) = prev_line_str.chars().next_back()
+                        {
+                            target_offset -= last_char.len_utf8();
+                        }
+                        state.cursor_position = prev_line_start + target_offset;
+                        clamp_cursor(&mut state);
+                    } else if !state.logs.is_empty() {
+                        state.selection_index = 1;
+                    }
+                }
             } else {
                 tx_action.send(AppAction::SelectPrevious).await.ok();
             }
@@ -484,7 +549,7 @@ pub async fn handle_vim_keys(
             }
         }
         'w' => {
-            if let AppState::Chatting(_, _) = &state.state
+            if let AppState::Chatting(_) = &state.state
                 && state.selection_index > 0
             {
                 return;
@@ -502,7 +567,7 @@ pub async fn handle_vim_keys(
             }
         }
         'b' => {
-            if let AppState::Chatting(_, _) = &state.state
+            if let AppState::Chatting(_) = &state.state
                 && state.selection_index > 0
             {
                 return;
@@ -519,7 +584,7 @@ pub async fn handle_vim_keys(
             }
         }
         'd' => {
-            if let AppState::Chatting(channel_id, _) = &state.state
+            if let AppState::Chatting(channel) = &state.state
                 && state.selection_index > 0
             {
                 if let Some(VimOperator::Delete) = current_operator {
@@ -534,7 +599,7 @@ pub async fn handle_vim_keys(
                             .is_some_and(|user| user.id == msg.author.id)
                         {
                             let msg_id = msg.id.clone();
-                            let ch_id = channel_id.clone();
+                            let ch_id = channel.get_id().clone();
 
                             tx_action
                                 .send(AppAction::ApiDeleteMessage(ch_id, msg_id))
@@ -592,7 +657,7 @@ pub async fn handle_vim_keys(
         }
 
         'x' => {
-            if let AppState::Chatting(_, _) = &state.state
+            if let AppState::Chatting(_) = &state.state
                 && state.selection_index > 0
             {
                 return;
@@ -607,18 +672,122 @@ pub async fn handle_vim_keys(
                 clamp_cursor(&mut state);
             }
         }
-        'G' => {
-            if let AppState::Chatting(_, _) = &state.state {
+        'g' => {
+            if let Some(VimOperator::Goto) = current_operator {
+                match &state.state {
+                    AppState::Chatting(_) => {
+                        state.selection_index = state.messages.len();
+                    }
+                    AppState::Logs(_) => {
+                        state.selection_index = state.logs.len();
+                    }
+                    _ => {
+                        state.selection_index = 0;
+                    }
+                }
+            } else if let Some(vim_state) = &mut state.vim_state {
+                vim_state.operator = Some(VimOperator::Goto);
+                vim_state.last_action_time = Instant::now();
+            }
+        }
+        'G' => match &state.state {
+            AppState::Home => {
+                state.selection_index = 2;
+            }
+            AppState::SelectingGuild => {
+                state.selection_index = state
+                    .guilds
+                    .iter()
+                    .filter(|g| {
+                        g.name
+                            .to_lowercase()
+                            .contains(state.search_input.to_lowercase().as_str())
+                    })
+                    .collect::<Vec<&PartialGuild>>()
+                    .len()
+                    .saturating_sub(1);
+            }
+            AppState::SelectingDM => {
+                state.selection_index = state
+                    .dms
+                    .iter()
+                    .filter(|dm| {
+                        dm.get_name()
+                            .to_lowercase()
+                            .contains(state.search_input.to_lowercase().as_str())
+                    })
+                    .collect::<Vec<&DM>>()
+                    .len()
+                    .saturating_sub(1);
+            }
+            AppState::SelectingChannel(_) => {
+                let filter_text = state.search_input.to_lowercase();
+                let permission_context = &state.context;
+                let mut list_items: Vec<&Channel> = Vec::new();
+                let should_display_channel_content = |c: &Channel| {
+                    let is_readable = permission_context
+                        .as_ref()
+                        .is_some_and(|context| c.is_readable(context));
+
+                    is_readable
+                        && (filter_text.is_empty() || c.name.to_lowercase().contains(&filter_text))
+                };
+
+                state
+                    .channels
+                    .iter()
+                    .filter(|c| {
+                        if c.children.is_none() && c.channel_type != 4 {
+                            return should_display_channel_content(c);
+                        }
+                        if c.channel_type == 4 {
+                            if filter_text.is_empty()
+                                || c.name.to_lowercase().contains(&filter_text)
+                            {
+                                return true;
+                            }
+                            if let Some(children) = &c.children {
+                                return children.iter().any(should_display_channel_content);
+                            }
+                        }
+                        false
+                    })
+                    .for_each(|c| {
+                        if c.channel_type == 4 {
+                            list_items.push(c);
+                            if let Some(children) = &c.children {
+                                children
+                                    .iter()
+                                    .filter(|c| should_display_channel_content(c))
+                                    .for_each(|child| list_items.push(child));
+                            }
+                        } else {
+                            list_items.push(c);
+                        }
+                    });
+
+                state.selection_index = list_items.len().saturating_sub(1);
+            }
+            AppState::Chatting(_) | AppState::Logs(_) => {
                 state.selection_index = 0;
 
                 let len = state.input.len();
                 state.cursor_position = len;
                 clamp_cursor(&mut state);
             }
-        }
+            _ => {}
+        },
         ':' => {
-            // In the future, this could enter command mode.
-            // For now, we do nothing to avoid conflict with standard Vim behavior.
+            state.saved_input = Some(state.input.clone());
+            state.input.clear();
+            state.cursor_position = 0;
+            state.mode = InputMode::Command;
+        }
+        '/' => {
+            state.saved_input = Some(state.input.clone());
+            state.input.clear();
+            state.cursor_position = 0;
+            state.mode = InputMode::Search;
         }
         _ => {
             if let Some(vim_state) = &mut state.vim_state {
