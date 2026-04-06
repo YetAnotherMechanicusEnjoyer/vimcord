@@ -8,3 +8,4 @@ When Vim mode is enabled and you are in **Normal Mode**, you can type `:` to ent
 |---------|--------|
 | `:quit` / `:q` | Quit the application |
 | `:debug <message>` | Print a debug message to the logs |
+| `:logs` | Open logs panel |
