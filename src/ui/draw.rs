@@ -126,10 +126,26 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                         _ => Color::LightRed,
                     };
 
+                    let name_text = format!("{char} {}", d.get_name());
                     spans.push(Span::styled(
-                        format!("{char} {}", d.get_name()),
+                        name_text.clone(),
                         Style::default().fg(color),
                     ));
+
+                    // Show custom status text next to the username for 1:1 DMs
+                    if d.channel_type == 1 && d.recipients.len() == 1 {
+                        if let Some(status_text) = app
+                            .user_status_texts
+                            .get(&d.recipients[0].id)
+                        {
+                            if !status_text.is_empty() {
+                                spans.push(Span::styled(
+                                    format!(" - {}", status_text),
+                                    Style::default().fg(Color::Gray),
+                                ));
+                            }
+                        }
+                    }
 
                     ListItem::new(Line::from(spans))
                 })
