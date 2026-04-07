@@ -596,6 +596,22 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                 Style::default().fg(Color::Yellow),
             ));
 
+            if let crate::api::AnyChannel::Direct(d) = &**channel {
+                if d.channel_type == 1 && d.recipients.len() == 1 {
+                    if let Some(status_text) = app
+                        .user_status_texts
+                        .get(&d.recipients[0].id)
+                    {
+                        if !status_text.is_empty() {
+                            title_spans.push(Span::styled(
+                                format!(" - {}", status_text),
+                                Style::default().fg(Color::Gray),
+                            ));
+                        }
+                    }
+                }
+            }
+
             let title = Line::from(title_spans);
 
             let paragraph = Paragraph::new(final_content)
