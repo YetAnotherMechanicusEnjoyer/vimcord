@@ -111,6 +111,7 @@ pub enum AppAction {
     EndLoadingMessages,
     SelectEmoji,
     Paste(String),
+    DesktopNotification(String, String, String),
     Tick,
 }
 
