@@ -36,9 +36,11 @@ The following features are grouped by **Importance** (Foundation, Critical, High
      <strong>Description</strong>: Updating the local and remote "last read" state to clear unread notification badges.<br/>
      <strong>Implementation</strong>: Hitting the <code>/ack</code> endpoint for channels when viewed.
     </details>
-3. **Proper Push Notifications** *(Difficulty: Medium) (🔒 Blocked by WebSockets)*
-   - **Description**: Replace the current hacky workaround for notifications with reliable, instant desktop push notifications for new messages.
-   - **Implementation**: Listen for `MESSAGE_CREATE` events in real-time over the WebSocket Gateway to trigger native notifications correctly without missing any or double-notifying.
+3. <details>
+      <summary><sub><s><strong>Proper Push Notifications</strong> <em>(Difficulty: Medium) (🔒 Blocked by WebSockets)</em></s></sub></summary>
+      <strong>Description</strong>: Replace the current hacky workaround for notifications with reliable, instant desktop push notifications for new messages.<br/>
+      <strong>Implementation</strong>: Listen for `MESSAGE_CREATE` events in real-time over the WebSocket Gateway to trigger native notifications correctly without missing any or double-notifying.
+    </details>
 4. <details>
      <summary><sub><s><strong>Message Editing</strong> <em>(Difficulty: Medium)</em></s></sub></summary>
      <strong>Description</strong>: Ability to edit existing sent messages.<br/>

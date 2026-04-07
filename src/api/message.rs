@@ -12,6 +12,7 @@ pub struct Message {
     pub content: Option<String>,
     pub timestamp: String,
     pub mentions: Vec<User>,
+    pub guild_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]

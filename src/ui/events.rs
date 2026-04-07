@@ -1315,46 +1315,135 @@ pub async fn handle_keys_events(
                         .ack_message(&channel_id_clone, &msg_id_clone)
                         .await;
                 });
-            } else if state.dms.iter().any(|dm| dm.id == msg.channel_id) {
-                // If it's a DM and we're not actively viewing it, maybe notify
-                let is_self = state
+            } else {
+                let is_dm = state.dms.iter().any(|dm| dm.id == msg.channel_id);
+                let is_mentioned = state
                     .current_user
                     .as_ref()
-                    .is_some_and(|u| u.id == msg.author.id);
+                    .is_some_and(|u| msg.mentions.iter().any(|m| m.id == u.id));
 
-                if !is_self {
-                    let sender = msg.author.username.clone();
-                    let content = if state.discreet_notifs {
-                        "Sent you a DM".to_string()
-                    } else {
-                        msg.content
-                            .clone()
-                            .unwrap_or_else(|| "Sent an attachment".to_string())
-                    };
-                    if let Ok(handle) = notify_rust::Notification::new()
-                        .summary(&sender)
-                        .body(&content)
-                        .appname("vimcord")
-                        .show()
-                    {
+                if is_dm || is_mentioned {
+                    let is_self = state
+                        .current_user
+                        .as_ref()
+                        .is_some_and(|u| u.id == msg.author.id);
+
+                    if !is_self {
+                        let sender = if state.notifs_display_username {
+                            msg.author.username.clone()
+                        } else {
+                            msg.author
+                                .global_name
+                                .clone()
+                                .unwrap_or_else(|| msg.author.username.clone())
+                        };
+                        let is_dm_clone = is_dm;
+                        let msg_clone = msg.clone();
+                        let discreet = state.discreet_notifs;
+
+                        let guild_clone = state.selected_guild.as_ref().and_then(|sg| {
+                            if msg.guild_id.as_deref() == Some(sg.id.as_str()) {
+                                Some(sg.clone())
+                            } else {
+                                None
+                            }
+                        });
+
+                        let guild_name = msg.guild_id.as_ref().and_then(|gid| {
+                            state
+                                .guilds
+                                .iter()
+                                .find(|g| &g.id == gid)
+                                .map(|g| g.name.clone())
+                        });
+
+                        let mut cached_channel_name = None;
+                        if msg.guild_id.is_some()
+                            && state.selected_guild.as_ref().map(|g| &g.id) == msg.guild_id.as_ref()
+                        {
+                            for channel in &state.channels {
+                                if channel.id == msg.channel_id {
+                                    cached_channel_name = Some(channel.name.clone());
+                                    break;
+                                }
+                                if let Some(children) = &channel.children
+                                    && let Some(child) =
+                                        children.iter().find(|c| c.id == msg.channel_id)
+                                {
+                                    cached_channel_name = Some(child.name.clone());
+                                    break;
+                                }
+                            }
+                        }
+
+                        let api_client = state.api_client.clone();
+                        let tx = tx_action.clone();
+
+                        tokio::spawn(async move {
+                            let (summary, body) = if discreet {
+                                let body = if is_dm_clone {
+                                    "Sent you a DM".to_string()
+                                } else {
+                                    "Mentioned you in a channel".to_string()
+                                };
+                                (sender, body)
+                            } else {
+                                let body =
+                                    if msg_clone.content.as_ref().is_some_and(|c| !c.is_empty()) {
+                                        msg_clone.map_mentions(guild_clone)
+                                    } else {
+                                        "Sent an attachment".to_string()
+                                    };
+                                let mut final_sender = sender.clone();
+
+                                if !is_dm_clone {
+                                    let mut channel_name = String::new();
+                                    if let Some(name) = cached_channel_name {
+                                        channel_name = format!("#{}", name);
+                                    } else if let Ok(crate::api::AnyChannel::Guild(c)) =
+                                        api_client.get_channel(&msg_clone.channel_id).await
+                                    {
+                                        channel_name = format!("#{}", c.name);
+                                    }
+
+                                    if let Some(gn) = guild_name {
+                                        if !channel_name.is_empty() {
+                                            final_sender =
+                                                format!("{} in {} ({})", sender, gn, channel_name);
+                                        } else {
+                                            final_sender = format!("{} in {}", sender, gn);
+                                        }
+                                    } else if !channel_name.is_empty() {
+                                        final_sender = format!("{} in {}", sender, channel_name);
+                                    }
+                                }
+
+                                (final_sender, body)
+                            };
+
+                            let _ = tx
+                                .send(AppAction::DesktopNotification(
+                                    summary,
+                                    body,
+                                    msg_clone.channel_id,
+                                ))
+                                .await;
+                        });
+                    }
+
+                    if is_dm {
+                        // Jump this DM to the top of the list
+                        if let Some(pos) = state.dms.iter().position(|dm| dm.id == msg.channel_id) {
+                            let mut dm = state.dms.remove(pos);
+                            dm.last_message_id = Some(msg.id.clone());
+                            state.dms.insert(0, dm);
+                        }
+
                         state
-                            .active_notifications
-                            .entry(msg.channel_id.clone())
-                            .or_default()
-                            .push(handle);
+                            .last_message_ids
+                            .insert(msg.channel_id.clone(), msg.id.clone());
                     }
                 }
-
-                // Jump this DM to the top of the list
-                if let Some(pos) = state.dms.iter().position(|dm| dm.id == msg.channel_id) {
-                    let mut dm = state.dms.remove(pos);
-                    dm.last_message_id = Some(msg.id.clone());
-                    state.dms.insert(0, dm);
-                }
-
-                state
-                    .last_message_ids
-                    .insert(msg.channel_id.clone(), msg.id.clone());
             }
 
             // Remove the typing indicator if the author sent a message in the channel
@@ -1579,6 +1668,20 @@ pub async fn handle_keys_events(
             state.status_message =
                 "Chatting in channel. Press Enter to send message, Esc to return to channels."
                     .to_string();
+        }
+        AppAction::DesktopNotification(summary, body, channel_id) => {
+            if let Ok(handle) = notify_rust::Notification::new()
+                .summary(&summary)
+                .body(&body)
+                .appname("vimcord")
+                .show()
+            {
+                state
+                    .active_notifications
+                    .entry(channel_id)
+                    .or_default()
+                    .push(handle);
+            }
         }
         AppAction::Tick => {
             state.tick_count = state.tick_count.wrapping_add(1);
