@@ -1329,7 +1329,11 @@ pub async fn handle_keys_events(
                         .is_some_and(|u| u.id == msg.author.id);
 
                     if !is_self {
-                        let sender = msg.author.username.clone();
+                        let sender = if state.notifs_display_username {
+                            msg.author.username.clone()
+                        } else {
+                            msg.author.global_name.clone().unwrap_or_else(|| msg.author.username.clone())
+                        };
                         let is_dm_clone = is_dm;
                         let msg_clone = msg.clone();
                         let discreet = state.discreet_notifs;

@@ -165,6 +165,7 @@ pub struct App {
     silent_typing: bool,
     is_loading: bool,
     pub active_notifications: HashMap<String, Vec<notify_rust::NotificationHandle>>,
+    pub notifs_display_username: bool,
     display_username: bool,
     logs: Vec<String>,
 }
@@ -176,6 +177,7 @@ pub struct Setup {
     vim_mode: bool,
     vim_state: Option<VimState>,
     discreet_notifs: bool,
+    notifs_display_username: bool,
     silent_typing: bool,
     display_username: bool,
 }
@@ -222,6 +224,7 @@ impl Default for App {
             silent_typing: false,
             is_loading: false,
             active_notifications: HashMap::new(),
+            notifs_display_username: false,
             display_username: false,
             logs: Vec::new(),
         }
@@ -237,6 +240,7 @@ impl App {
             vim_mode,
             vim_state,
             discreet_notifs,
+            notifs_display_username,
             silent_typing,
             display_username,
         ) = (
@@ -246,6 +250,7 @@ impl App {
             values.vim_mode,
             values.vim_state,
             values.discreet_notifs,
+            values.notifs_display_username,
             values.silent_typing,
             values.display_username,
         );
@@ -292,6 +297,7 @@ impl App {
             silent_typing,
             is_loading: false,
             active_notifications: HashMap::new(),
+            notifs_display_username,
             display_username,
             logs: Vec::new(),
         }
@@ -326,6 +332,7 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
         vim_mode,
         vim_state,
         discreet_notifs: config.discreet_notifs,
+        notifs_display_username: config.notifs_display_username,
         silent_typing: config.silent_typing,
         display_username: config.display_username,
     })));
