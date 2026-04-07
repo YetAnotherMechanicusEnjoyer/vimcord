@@ -1332,12 +1332,15 @@ pub async fn handle_keys_events(
                         let sender = if state.notifs_display_username {
                             msg.author.username.clone()
                         } else {
-                            msg.author.global_name.clone().unwrap_or_else(|| msg.author.username.clone())
+                            msg.author
+                                .global_name
+                                .clone()
+                                .unwrap_or_else(|| msg.author.username.clone())
                         };
                         let is_dm_clone = is_dm;
                         let msg_clone = msg.clone();
                         let discreet = state.discreet_notifs;
-                        
+
                         let guild_clone = state.selected_guild.as_ref().and_then(|sg| {
                             if msg.guild_id.as_deref() == Some(sg.id.as_str()) {
                                 Some(sg.clone())
@@ -1347,12 +1350,16 @@ pub async fn handle_keys_events(
                         });
 
                         let guild_name = msg.guild_id.as_ref().and_then(|gid| {
-                            state.guilds.iter().find(|g| &g.id == gid).map(|g| g.name.clone())
+                            state
+                                .guilds
+                                .iter()
+                                .find(|g| &g.id == gid)
+                                .map(|g| g.name.clone())
                         });
 
                         let api_client = state.api_client.clone();
                         let tx = tx_action.clone();
-                        
+
                         tokio::spawn(async move {
                             let (summary, body) = if discreet {
                                 let body = if is_dm_clone {
@@ -1362,22 +1369,26 @@ pub async fn handle_keys_events(
                                 };
                                 (sender, body)
                             } else {
-                                let body = if msg_clone.content.as_ref().is_some_and(|c| !c.is_empty()) {
-                                    msg_clone.map_mentions(guild_clone)
-                                } else {
-                                    "Sent an attachment".to_string()
-                                };
+                                let body =
+                                    if msg_clone.content.as_ref().is_some_and(|c| !c.is_empty()) {
+                                        msg_clone.map_mentions(guild_clone)
+                                    } else {
+                                        "Sent an attachment".to_string()
+                                    };
                                 let mut final_sender = sender.clone();
-                                
+
                                 if !is_dm_clone {
                                     let mut channel_name = String::new();
-                                    if let Ok(crate::api::AnyChannel::Guild(c)) = api_client.get_channel(&msg_clone.channel_id).await {
+                                    if let Ok(crate::api::AnyChannel::Guild(c)) =
+                                        api_client.get_channel(&msg_clone.channel_id).await
+                                    {
                                         channel_name = format!("#{}", c.name);
                                     }
-                                    
+
                                     if let Some(gn) = guild_name {
                                         if !channel_name.is_empty() {
-                                            final_sender = format!("{} in {} ({})", sender, gn, channel_name);
+                                            final_sender =
+                                                format!("{} in {} ({})", sender, gn, channel_name);
                                         } else {
                                             final_sender = format!("{} in {}", sender, gn);
                                         }
@@ -1385,11 +1396,17 @@ pub async fn handle_keys_events(
                                         final_sender = format!("{} in {}", sender, channel_name);
                                     }
                                 }
-                                
+
                                 (final_sender, body)
                             };
 
-                            let _ = tx.send(AppAction::DesktopNotification(summary, body, msg_clone.channel_id)).await;
+                            let _ = tx
+                                .send(AppAction::DesktopNotification(
+                                    summary,
+                                    body,
+                                    msg_clone.channel_id,
+                                ))
+                                .await;
                         });
                     }
 
