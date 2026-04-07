@@ -1366,13 +1366,12 @@ pub async fn handle_keys_events(
                                     cached_channel_name = Some(channel.name.clone());
                                     break;
                                 }
-                                if let Some(children) = &channel.children {
-                                    if let Some(child) =
+                                if let Some(children) = &channel.children
+                                    && let Some(child) =
                                         children.iter().find(|c| c.id == msg.channel_id)
-                                    {
-                                        cached_channel_name = Some(child.name.clone());
-                                        break;
-                                    }
+                                {
+                                    cached_channel_name = Some(child.name.clone());
+                                    break;
                                 }
                             }
                         }
