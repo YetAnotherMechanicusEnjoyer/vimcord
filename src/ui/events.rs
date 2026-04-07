@@ -1320,7 +1320,7 @@ pub async fn handle_keys_events(
                 let is_mentioned = state
                     .current_user
                     .as_ref()
-                    .map_or(false, |u| msg.mentions.iter().any(|m| m.id == u.id));
+                    .is_some_and(|u| msg.mentions.iter().any(|m| m.id == u.id));
 
                 if is_dm || is_mentioned {
                     let is_self = state
