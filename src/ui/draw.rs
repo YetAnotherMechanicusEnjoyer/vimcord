@@ -552,15 +552,40 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                 app.chat_scroll_offset = total_visual_height.saturating_sub(max_height);
             }
 
-            let title = format!(
-                "vimcord Client - Chatting in channel - {}",
-                channel.get_name()
-            );
+            let mut title_spans = vec![Span::styled(
+                "vimcord Client - Chatting in channel - ",
+                Style::default().fg(Color::Yellow),
+            )];
+
+            if let crate::api::AnyChannel::Direct(d) = &**channel {
+                if d.channel_type == 1 && d.recipients.len() == 1 {
+                    let (status_char, status_color) = match app
+                        .user_statuses
+                        .get(&d.recipients[0].id)
+                        .map(|s| s.as_str())
+                    {
+                        Some("online") => ("", Color::LightGreen),
+                        Some("idle") => ("", Color::LightYellow),
+                        Some("dnd") => ("", Color::LightRed),
+                        _ => ("", Color::DarkGray), // offline/invisible/unknown
+                    };
+                    title_spans.push(Span::styled(
+                        format!("{} ", status_char),
+                        Style::default().fg(status_color),
+                    ));
+                }
+            }
+            title_spans.push(Span::styled(
+                channel.get_name(),
+                Style::default().fg(Color::Yellow),
+            ));
+
+            let title = Line::from(title_spans);
 
             let paragraph = Paragraph::new(final_content)
                 .block(
                     Block::default()
-                        .title(Span::styled(title, Style::default().fg(Color::Yellow)))
+                        .title(title)
                         .borders(Borders::ALL)
                         .border_type(BorderType::Double),
                 )
