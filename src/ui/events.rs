@@ -1357,6 +1357,26 @@ pub async fn handle_keys_events(
                                 .map(|g| g.name.clone())
                         });
 
+                        let mut cached_channel_name = None;
+                        if msg.guild_id.is_some()
+                            && state.selected_guild.as_ref().map(|g| &g.id) == msg.guild_id.as_ref()
+                        {
+                            for channel in &state.channels {
+                                if channel.id == msg.channel_id {
+                                    cached_channel_name = Some(channel.name.clone());
+                                    break;
+                                }
+                                if let Some(children) = &channel.children {
+                                    if let Some(child) =
+                                        children.iter().find(|c| c.id == msg.channel_id)
+                                    {
+                                        cached_channel_name = Some(child.name.clone());
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
                         let api_client = state.api_client.clone();
                         let tx = tx_action.clone();
 
@@ -1379,7 +1399,9 @@ pub async fn handle_keys_events(
 
                                 if !is_dm_clone {
                                     let mut channel_name = String::new();
-                                    if let Ok(crate::api::AnyChannel::Guild(c)) =
+                                    if let Some(name) = cached_channel_name {
+                                        channel_name = format!("#{}", name);
+                                    } else if let Ok(crate::api::AnyChannel::Guild(c)) =
                                         api_client.get_channel(&msg_clone.channel_id).await
                                     {
                                         channel_name = format!("#{}", c.name);
