@@ -675,7 +675,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
 
                 let log_type_color = match log_type {
                     "ERROR" => Color::Red,
-                    "WARNING" => Color::Yellow,
+                    "WARN" => Color::Yellow,
                     "INFO" => Color::Cyan,
                     "DEBUG" => Color::Magenta,
                     _ => Color::Green,
