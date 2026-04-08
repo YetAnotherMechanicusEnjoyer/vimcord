@@ -1194,6 +1194,7 @@ pub async fn handle_keys_events(
             }
 
             // Clear any active desktop notifications for this channel
+            #[cfg(all(unix, not(target_os = "macos")))]
             if let Some(handles) = state.active_notifications.remove(&channel_id) {
                 for handle in handles {
                     handle.close();
