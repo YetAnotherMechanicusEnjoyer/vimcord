@@ -275,12 +275,13 @@ impl GatewayClient {
                                 {
                                     for activity in activities {
                                         if activity["type"].as_u64() == Some(4)
-                                            && let Some(state_text) = activity["state"].as_str() {
-                                                status_texts.insert(
-                                                    user_id.to_string(),
-                                                    state_text.to_string(),
-                                                );
-                                            }
+                                            && let Some(state_text) = activity["state"].as_str()
+                                        {
+                                            status_texts.insert(
+                                                user_id.to_string(),
+                                                state_text.to_string(),
+                                            );
+                                        }
                                     }
                                 }
                             }
@@ -300,10 +301,11 @@ impl GatewayClient {
                         {
                             for activity in activities {
                                 if activity["type"].as_u64() == Some(4)
-                                    && let Some(state_text) = activity["state"].as_str() {
-                                        status_texts
-                                            .insert(user_id.to_string(), state_text.to_string());
-                                    }
+                                    && let Some(state_text) = activity["state"].as_str()
+                                {
+                                    status_texts
+                                        .insert(user_id.to_string(), state_text.to_string());
+                                }
                             }
                         }
                     }
