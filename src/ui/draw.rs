@@ -130,16 +130,14 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                     spans.push(Span::styled(name_text.clone(), Style::default().fg(color)));
 
                     // Show custom status text next to the username for 1:1 DMs
-                    if d.channel_type == 1 && d.recipients.len() == 1 {
-                        if let Some(status_text) = app.user_status_texts.get(&d.recipients[0].id) {
-                            if !status_text.is_empty() {
+                    if d.channel_type == 1 && d.recipients.len() == 1
+                        && let Some(status_text) = app.user_status_texts.get(&d.recipients[0].id)
+                            && !status_text.is_empty() {
                                 spans.push(Span::styled(
                                     format!(" - {}", status_text),
                                     Style::default().fg(Color::Gray),
                                 ));
                             }
-                        }
-                    }
 
                     ListItem::new(Line::from(spans))
                 })
@@ -567,8 +565,8 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                 Style::default().fg(Color::Yellow),
             )];
 
-            if let crate::api::AnyChannel::Direct(d) = &**channel {
-                if d.channel_type == 1 && d.recipients.len() == 1 {
+            if let crate::api::AnyChannel::Direct(d) = &**channel
+                && d.channel_type == 1 && d.recipients.len() == 1 {
                     let (status_char, status_color) = match app
                         .user_statuses
                         .get(&d.recipients[0].id)
@@ -584,24 +582,20 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                         Style::default().fg(status_color),
                     ));
                 }
-            }
             title_spans.push(Span::styled(
                 channel.get_name(),
                 Style::default().fg(Color::Yellow),
             ));
 
-            if let crate::api::AnyChannel::Direct(d) = &**channel {
-                if d.channel_type == 1 && d.recipients.len() == 1 {
-                    if let Some(status_text) = app.user_status_texts.get(&d.recipients[0].id) {
-                        if !status_text.is_empty() {
+            if let crate::api::AnyChannel::Direct(d) = &**channel
+                && d.channel_type == 1 && d.recipients.len() == 1
+                    && let Some(status_text) = app.user_status_texts.get(&d.recipients[0].id)
+                        && !status_text.is_empty() {
                             title_spans.push(Span::styled(
                                 format!(" - {}", status_text),
                                 Style::default().fg(Color::Gray),
                             ));
                         }
-                    }
-                }
-            }
 
             let title = Line::from(title_spans);
 
