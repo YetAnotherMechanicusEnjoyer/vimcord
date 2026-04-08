@@ -95,8 +95,11 @@ pub enum AppAction {
     GatewayMessageDelete(String, String), // message_id, channel_id
     GatewayTypingStart(String, String, Option<String>), // channel_id, user_id, display_name
     GatewayGuildMembersChunk(String, Vec<GuildMember>, String, String),
-    GatewayReadySupplemental(std::collections::HashMap<String, String>), // user_id -> status
-    GatewayPresenceUpdate(String, String),                               // user_id, status
+    GatewayReadySupplemental(
+        std::collections::HashMap<String, String>,
+        std::collections::HashMap<String, String>,
+    ), // (user_id -> status, user_id -> status_text)
+    GatewayPresenceUpdate(String, String, Option<String>), // user_id, status, custom_status_text
     TransitionToChat(Box<AnyChannel>),
     TransitionToEditing(Box<AnyChannel>, Message, String, char),
     TransitionToChannels(Box<Guild>),
@@ -162,6 +165,7 @@ pub struct App {
     typing_users: HashMap<String, HashMap<String, std::time::Instant>>, // channel_id -> user_id -> timestamp
     user_names: HashMap<String, String>,
     user_statuses: HashMap<String, String>, // user id -> status string (online, offline, etc.)
+    user_status_texts: HashMap<String, String>, // user id -> custom status text
     silent_typing: bool,
     is_loading: bool,
     pub active_notifications: HashMap<String, Vec<notify_rust::NotificationHandle>>,
@@ -221,6 +225,7 @@ impl Default for App {
             typing_users: HashMap::new(),
             user_names: HashMap::new(),
             user_statuses: HashMap::new(),
+            user_status_texts: HashMap::new(),
             silent_typing: false,
             is_loading: false,
             active_notifications: HashMap::new(),
@@ -294,6 +299,7 @@ impl App {
             typing_users: HashMap::new(),
             user_names: HashMap::new(),
             user_statuses: HashMap::new(),
+            user_status_texts: HashMap::new(),
             silent_typing,
             is_loading: false,
             active_notifications: HashMap::new(),

@@ -259,6 +259,7 @@ impl GatewayClient {
             }
             "READY_SUPPLEMENTAL" => {
                 let mut statuses = std::collections::HashMap::new();
+                let mut status_texts = std::collections::HashMap::new();
                 if let Some(guilds) = d["merged_presences"]["guilds"].as_array() {
                     for guild in guilds {
                         if let Some(users) = guild.as_array() {
@@ -267,6 +268,21 @@ impl GatewayClient {
                                     (user["user_id"].as_str(), user["status"].as_str())
                                 {
                                     statuses.insert(user_id.to_string(), status.to_string());
+                                }
+                                // Extract custom status text from activities (type 4)
+                                if let (Some(user_id), Some(activities)) =
+                                    (user["user_id"].as_str(), user["activities"].as_array())
+                                {
+                                    for activity in activities {
+                                        if activity["type"].as_u64() == Some(4)
+                                            && let Some(state_text) = activity["state"].as_str()
+                                        {
+                                            status_texts.insert(
+                                                user_id.to_string(),
+                                                state_text.to_string(),
+                                            );
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -279,20 +295,44 @@ impl GatewayClient {
                         {
                             statuses.insert(user_id.to_string(), status.to_string());
                         }
+                        // Extract custom status text from friend activities (type 4)
+                        if let (Some(user_id), Some(activities)) =
+                            (friend["user_id"].as_str(), friend["activities"].as_array())
+                        {
+                            for activity in activities {
+                                if activity["type"].as_u64() == Some(4)
+                                    && let Some(state_text) = activity["state"].as_str()
+                                {
+                                    status_texts
+                                        .insert(user_id.to_string(), state_text.to_string());
+                                }
+                            }
+                        }
                     }
                 }
                 let _ = action_tx
-                    .send(AppAction::GatewayReadySupplemental(statuses))
+                    .send(AppAction::GatewayReadySupplemental(statuses, status_texts))
                     .await;
             }
             "PRESENCE_UPDATE" => {
                 if let (Some(user_id), Some(status)) =
                     (d["user"]["id"].as_str(), d["status"].as_str())
                 {
+                    // Extract custom status text from activities (type 4)
+                    let status_text = d["activities"].as_array().and_then(|activities| {
+                        activities.iter().find_map(|a| {
+                            if a["type"].as_u64() == Some(4) {
+                                a["state"].as_str().map(|s| s.to_string())
+                            } else {
+                                None
+                            }
+                        })
+                    });
                     let _ = action_tx
                         .send(AppAction::GatewayPresenceUpdate(
                             user_id.to_string(),
                             status.to_string(),
+                            status_text,
                         ))
                         .await;
                 }

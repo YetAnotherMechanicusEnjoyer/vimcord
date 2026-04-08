@@ -1451,11 +1451,17 @@ pub async fn handle_keys_events(
                 typers.remove(&msg.author.id);
             }
         }
-        AppAction::GatewayReadySupplemental(statuses) => {
+        AppAction::GatewayReadySupplemental(statuses, status_texts) => {
             state.user_statuses.extend(statuses);
+            state.user_status_texts.extend(status_texts);
         }
-        AppAction::GatewayPresenceUpdate(user_id, status) => {
-            state.user_statuses.insert(user_id, status);
+        AppAction::GatewayPresenceUpdate(user_id, status, status_text) => {
+            state.user_statuses.insert(user_id.clone(), status);
+            if let Some(text) = status_text {
+                state.user_status_texts.insert(user_id, text);
+            } else {
+                state.user_status_texts.remove(&user_id);
+            }
         }
         AppAction::GatewayGuildMembersChunk(_, members, _, chunk_count) => {
             if chunk_count.parse::<usize>().unwrap_or_default() == 0 {
