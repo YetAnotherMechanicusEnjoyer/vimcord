@@ -302,10 +302,8 @@ impl GatewayClient {
                             for activity in activities {
                                 if activity["type"].as_u64() == Some(4) {
                                     if let Some(state_text) = activity["state"].as_str() {
-                                        status_texts.insert(
-                                            user_id.to_string(),
-                                            state_text.to_string(),
-                                        );
+                                        status_texts
+                                            .insert(user_id.to_string(), state_text.to_string());
                                     }
                                 }
                             }
@@ -321,17 +319,15 @@ impl GatewayClient {
                     (d["user"]["id"].as_str(), d["status"].as_str())
                 {
                     // Extract custom status text from activities (type 4)
-                    let status_text = d["activities"]
-                        .as_array()
-                        .and_then(|activities| {
-                            activities.iter().find_map(|a| {
-                                if a["type"].as_u64() == Some(4) {
-                                    a["state"].as_str().map(|s| s.to_string())
-                                } else {
-                                    None
-                                }
-                            })
-                        });
+                    let status_text = d["activities"].as_array().and_then(|activities| {
+                        activities.iter().find_map(|a| {
+                            if a["type"].as_u64() == Some(4) {
+                                a["state"].as_str().map(|s| s.to_string())
+                            } else {
+                                None
+                            }
+                        })
+                    });
                     let _ = action_tx
                         .send(AppAction::GatewayPresenceUpdate(
                             user_id.to_string(),
