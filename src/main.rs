@@ -168,6 +168,7 @@ pub struct App {
     user_status_texts: HashMap<String, String>, // user id -> custom status text
     silent_typing: bool,
     is_loading: bool,
+    #[cfg(not(target_os = "windows"))]
     pub active_notifications: HashMap<String, Vec<notify_rust::NotificationHandle>>,
     pub notifs_display_username: bool,
     display_username: bool,
@@ -228,6 +229,7 @@ impl Default for App {
             user_status_texts: HashMap::new(),
             silent_typing: false,
             is_loading: false,
+            #[cfg(not(target_os = "windows"))]
             active_notifications: HashMap::new(),
             notifs_display_username: false,
             display_username: false,
@@ -302,6 +304,7 @@ impl App {
             user_status_texts: HashMap::new(),
             silent_typing,
             is_loading: false,
+            #[cfg(not(target_os = "windows"))]
             active_notifications: HashMap::new(),
             notifs_display_username,
             display_username,

@@ -1683,6 +1683,7 @@ pub async fn handle_keys_events(
                 .appname("vimcord")
                 .show()
             {
+                #[cfg(not(target_os = "windows"))]
                 state
                     .active_notifications
                     .entry(channel_id)
