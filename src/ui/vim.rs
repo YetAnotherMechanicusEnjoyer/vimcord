@@ -468,13 +468,9 @@ pub async fn handle_vim_keys(
                         match state.log_reader.read_previous_lines(10).await {
                             Ok(old_logs) => {
                                 if !old_logs.is_empty() {
-                                    let count = old_logs.len();
-
                                     for log in old_logs {
                                         state.logs.push(log);
                                     }
-
-                                    state.selection_index += count;
                                 }
                             }
                             Err(e) => {

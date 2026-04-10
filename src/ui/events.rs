@@ -1345,6 +1345,9 @@ pub async fn handle_keys_events(
                 msgs.push(msg.clone());
                 // Sort by descending ID: newest messages first (to match REST API response)
                 msgs.sort_by_key(|m| std::cmp::Reverse(m.id.parse::<u64>().unwrap_or_default()));
+                if state.selection_index > 0 {
+                    state.selection_index += 1;
+                }
                 state.messages = msgs;
 
                 state
@@ -1545,6 +1548,9 @@ pub async fn handle_keys_events(
             msgs.retain(|m| m.id != id);
             state.messages = msgs;
             state.deleted_message_ids.insert(id);
+            if state.selection_index > 0 {
+                state.selection_index -= 1;
+            }
         }
         AppAction::TransitionToChannels(guild) => {
             state.input = String::new();
@@ -1768,13 +1774,17 @@ pub async fn handle_keys_events(
         }
         AppAction::NewLogReceived(log) => {
             state.logs.insert(0, log);
-            if state.selection_index > 0 {
+            if let AppState::Logs(_) = &state.state
+                && state.selection_index > 0
+            {
                 state.selection_index += 1;
             }
         }
         AppAction::ClearLogs => {
             state.logs.clear();
-            state.selection_index = 0;
+            if let AppState::Logs(_) = &state.state {
+                state.selection_index = 0;
+            }
         }
     }
 
