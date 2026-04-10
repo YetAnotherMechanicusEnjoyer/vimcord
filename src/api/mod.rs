@@ -1,14 +1,17 @@
+pub mod activity;
 pub mod channel;
 pub mod dm;
 pub mod emoji;
 pub mod gateway;
 pub mod guild;
 pub mod message;
+pub mod presence;
 pub mod user;
 
 use reqwest::{Client, Method};
 use serde::de::DeserializeOwned;
 
+pub use activity::Activity;
 pub use channel::Channel;
 pub use dm::DM;
 pub use emoji::Emoji;
@@ -16,9 +19,11 @@ pub use gateway::GatewayClient;
 pub use guild::Guild;
 pub use message::Message;
 pub use message::PartialMessage;
+pub use presence::Presence;
 pub use user::User;
 
 use crate::api::guild::PartialGuild;
+use crate::api::user::UserSettings;
 use crate::{
     Error,
     api::{
@@ -314,6 +319,14 @@ impl ApiClient {
 
     pub async fn get_current_user_guilds(&self) -> Result<Vec<PartialGuild>, Error> {
         self.api_request("/users/@me/guilds", Method::GET, None)
+            .await
+    }
+
+    pub async fn modify_user_settings(
+        &self,
+        value: serde_json::Value,
+    ) -> Result<UserSettings, Error> {
+        self.api_request("/users/@me/settings", Method::PATCH, Some(value))
             .await
     }
 }

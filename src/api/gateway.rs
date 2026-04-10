@@ -7,6 +7,7 @@ use tokio::time::{self, Duration};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message as WsMessage};
 
 use crate::Error;
+use crate::api::Presence;
 use crate::api::guild::GuildMember;
 use crate::logs::{LogType, print_log};
 use crate::{AppAction, api::Message as DiscordMessage};
@@ -155,7 +156,9 @@ impl GatewayClient {
                 let msg = WsMessage::Text(serde_json::to_string(&op).unwrap().into());
                 let mut w = write_clone.lock().await;
                 if let Err(e) = w.send(msg).await {
-                    let _ = print_log(format!("Heartbeat failed: {}", e).into(), LogType::Error);
+                    print_log(format!("Heartbeat failed: {}", e).into(), LogType::Error)
+                        .await
+                        .ok();
                     break;
                 }
             }
@@ -173,7 +176,7 @@ impl GatewayClient {
                 Some(outbound_msg) = rx_outbound.recv() => {
                     let mut w = write_for_outbound.lock().await;
                     if let Err(e) = w.send(WsMessage::Text(serde_json::to_string(&outbound_msg).unwrap().into())).await {
-                        let _ = print_log(format!("Failed to send outbound message: {}", e).into(), LogType::Error);
+                        print_log(format!("Failed to send outbound message: {}", e).into(), LogType::Error).await.ok();
                     }
                 }
                 msg_result = read.next() => {
@@ -197,11 +200,11 @@ impl GatewayClient {
                             break;
                         }
                         Some(Err(e)) => {
-                            let _ = print_log(format!("Gateway error: {}", e).into(), LogType::Error);
+                            print_log(format!("Gateway error: {}", e).into(), LogType::Error).await.ok();
                             break;
                         }
                         None => {
-                            let _ = print_log("Gateway connection closed unexpectedly".into(), LogType::Error);
+                            print_log("Gateway connection closed unexpectedly".into(), LogType::Error).await.ok();
                             break;
                         }
                         _ => {}
@@ -216,26 +219,54 @@ impl GatewayClient {
 
     async fn handle_dispatch(t: &str, d: serde_json::Value, action_tx: &Sender<AppAction>) {
         match t {
-            "MESSAGE_CREATE" => {
-                if let Ok(msg) = serde_json::from_value::<DiscordMessage>(d) {
-                    let _ = action_tx.send(AppAction::GatewayMessageCreate(msg)).await;
+            "MESSAGE_CREATE" => match serde_json::from_value::<DiscordMessage>(d) {
+                Ok(msg) => {
+                    action_tx
+                        .send(AppAction::GatewayMessageCreate(msg))
+                        .await
+                        .ok();
                 }
-            }
-            "MESSAGE_UPDATE" => {
-                if let Ok(msg) = serde_json::from_value::<crate::api::PartialMessage>(d) {
-                    let _ = action_tx.send(AppAction::GatewayMessageUpdate(msg)).await;
+                Err(e) => {
+                    print_log(
+                        format!("Failed to parse created message: {e}").into(),
+                        LogType::Error,
+                    )
+                    .await
+                    .ok();
                 }
-            }
-            "MESSAGE_DELETE" => {
-                if let (Some(id), Some(channel_id)) = (d["id"].as_str(), d["channel_id"].as_str()) {
-                    let _ = action_tx
+            },
+            "MESSAGE_UPDATE" => match serde_json::from_value::<crate::api::PartialMessage>(d) {
+                Ok(msg) => {
+                    action_tx
+                        .send(AppAction::GatewayMessageUpdate(msg))
+                        .await
+                        .ok();
+                }
+                Err(e) => {
+                    print_log(
+                        format!("Failed to parse updated message: {e}").into(),
+                        LogType::Error,
+                    )
+                    .await
+                    .ok();
+                }
+            },
+            "MESSAGE_DELETE" => match (d["id"].as_str(), d["channel_id"].as_str()) {
+                (Some(id), Some(channel_id)) => {
+                    action_tx
                         .send(AppAction::GatewayMessageDelete(
                             id.to_string(),
                             channel_id.to_string(),
                         ))
-                        .await;
+                        .await
+                        .ok();
                 }
-            }
+                _ => {
+                    print_log("Failed to parse deleted message.".into(), LogType::Error)
+                        .await
+                        .ok();
+                }
+            },
             "TYPING_START" => {
                 if let (Some(channel_id), Some(user_id), Some(_timestamp)) = (
                     d["channel_id"].as_str(),
@@ -314,29 +345,22 @@ impl GatewayClient {
                     .send(AppAction::GatewayReadySupplemental(statuses, status_texts))
                     .await;
             }
-            "PRESENCE_UPDATE" => {
-                if let (Some(user_id), Some(status)) =
-                    (d["user"]["id"].as_str(), d["status"].as_str())
-                {
-                    // Extract custom status text from activities (type 4)
-                    let status_text = d["activities"].as_array().and_then(|activities| {
-                        activities.iter().find_map(|a| {
-                            if a["type"].as_u64() == Some(4) {
-                                a["state"].as_str().map(|s| s.to_string())
-                            } else {
-                                None
-                            }
-                        })
-                    });
-                    let _ = action_tx
-                        .send(AppAction::GatewayPresenceUpdate(
-                            user_id.to_string(),
-                            status.to_string(),
-                            status_text,
-                        ))
-                        .await;
+            "PRESENCE_UPDATE" => match serde_json::from_value::<Presence>(d.clone()) {
+                Ok(presence) => {
+                    action_tx
+                        .send(AppAction::GatewayPresenceUpdate(presence))
+                        .await
+                        .ok();
                 }
-            }
+                Err(e) => {
+                    print_log(
+                        format!("Failed to parse presence: {e}").into(),
+                        LogType::Error,
+                    )
+                    .await
+                    .ok();
+                }
+            },
             "GUILD_MEMBERS_CHUNK" => {
                 if let Ok(not_found) = serde_json::from_value::<Vec<String>>(d["not_found"].clone())
                 {
@@ -345,6 +369,7 @@ impl GatewayClient {
                             .into(),
                         LogType::Error,
                     )
+                    .await
                     .ok();
                 }
                 if let (Some(guild_id), Ok(members), Some(chunk_index), Some(chunk_count)) = (
@@ -364,11 +389,17 @@ impl GatewayClient {
                         .ok();
                 }
             }
+            "SESSIONS_REPLACE" => {
+                print_log(format!("SESSION_REPLACE:{d}").into(), LogType::Info)
+                    .await
+                    .ok();
+            }
             e => {
                 print_log(
                     format!("Unhandled event received: {e}").into(),
                     LogType::Info,
                 )
+                .await
                 .ok();
             }
         }
@@ -389,6 +420,33 @@ impl GatewayClient {
                 format!("Error sending request guild members: {e}").into(),
                 LogType::Error,
             )
+            .await
+            .ok();
+        }
+
+        Ok(())
+    }
+
+    pub async fn subscribe_channel(&self, guild_id: &str, channel_id: &str) -> Result<(), Error> {
+        let request = serde_json::json!({
+            "op": 14,
+            "d": {
+                "guild_id": guild_id,
+                "channels": {
+                    channel_id: [[0, 99]]
+                },
+                "typing": true,
+                "threads": true,
+                "activities": true,
+            }
+        });
+
+        if let Err(e) = self.outbound_tx.send(request).await {
+            print_log(
+                format!("Error subscribing to a channel: {e}").into(),
+                LogType::Error,
+            )
+            .await
             .ok();
         }
 

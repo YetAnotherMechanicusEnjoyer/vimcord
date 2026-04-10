@@ -21,12 +21,13 @@ use tokio::{
 
 use crate::{
     api::{
-        AnyChannel, ApiClient, Channel, Emoji, GatewayClient, Guild, Message, PartialMessage, User,
+        AnyChannel, ApiClient, Channel, Emoji, GatewayClient, Guild, Message, PartialMessage,
+        Presence, User,
         channel::PermissionContext,
         dm::DM,
         guild::{GuildMember, PartialGuild},
     },
-    logs::{LogType, print_log, read_log},
+    logs::{LogReader, LogType, get_log_directory, print_log, watch_logs},
     signals::{restore_terminal, setup_ctrlc_handler},
     ui::{draw_ui, handle_input_events, handle_keys_events, vim::VimState},
 };
@@ -36,6 +37,8 @@ mod config;
 mod logs;
 mod signals;
 mod ui;
+
+const APP_NAME: &str = "vimcord";
 
 const DISCORD_BASE_URL: &str = "https://discord.com/api/v10";
 
@@ -99,7 +102,7 @@ pub enum AppAction {
         std::collections::HashMap<String, String>,
         std::collections::HashMap<String, String>,
     ), // (user_id -> status, user_id -> status_text)
-    GatewayPresenceUpdate(String, String, Option<String>), // user_id, status, custom_status_text
+    GatewayPresenceUpdate(Presence), // user_id, status, custom_status_text
     TransitionToChat(Box<AnyChannel>),
     TransitionToEditing(Box<AnyChannel>, Message, String, char),
     TransitionToChannels(Box<Guild>),
@@ -116,6 +119,8 @@ pub enum AppAction {
     Paste(String),
     DesktopNotification(String, String, String),
     Tick,
+    NewLogReceived(String),
+    ClearLogs,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -173,6 +178,7 @@ pub struct App {
     pub notifs_display_username: bool,
     display_username: bool,
     logs: Vec<String>,
+    log_reader: LogReader,
 }
 
 pub struct Setup {
@@ -185,6 +191,7 @@ pub struct Setup {
     notifs_display_username: bool,
     silent_typing: bool,
     display_username: bool,
+    log_reader: LogReader,
 }
 
 impl Default for App {
@@ -234,6 +241,7 @@ impl Default for App {
             notifs_display_username: false,
             display_username: false,
             logs: Vec::new(),
+            log_reader: LogReader::default(),
         }
     }
 }
@@ -250,6 +258,7 @@ impl App {
             notifs_display_username,
             silent_typing,
             display_username,
+            log_reader,
         ) = (
             values.api_client,
             values.gateway_client,
@@ -260,6 +269,7 @@ impl App {
             values.notifs_display_username,
             values.silent_typing,
             values.display_username,
+            values.log_reader,
         );
 
         Self {
@@ -309,6 +319,7 @@ impl App {
             notifs_display_username,
             display_username,
             logs: Vec::new(),
+            log_reader,
         }
     }
 }
@@ -334,6 +345,23 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
     let gateway_tx = tx_action.clone();
     let gateway_client = GatewayClient::new(gateway_token, gateway_tx);
 
+    let mut path = get_log_directory(APP_NAME).unwrap_or(".".into());
+    let _ = std::fs::create_dir_all(&path);
+    path.push("logs");
+
+    let log_reader = match LogReader::new(path.clone()) {
+        Ok(lg) => lg,
+        Err(e) => {
+            print_log(
+                format!("Failed to create LogReader: {e}").into(),
+                LogType::Error,
+            )
+            .await
+            .ok();
+            return Err(e);
+        }
+    };
+
     let app_state = Arc::new(Mutex::new(App::setup(Setup {
         api_client: ApiClient::new(Client::new(), token.clone(), DISCORD_BASE_URL.to_string()),
         gateway_client,
@@ -344,6 +372,7 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
         notifs_display_username: config.notifs_display_username,
         silent_typing: config.silent_typing,
         display_username: config.display_username,
+        log_reader,
     })));
 
     let tx_ticker = tx_action.clone();
@@ -354,40 +383,13 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
         loop {
             tokio::select! {
                 _ = rx_shutdown_ticker.recv() => {
-                    print_log("Shutdown Program.".into(), LogType::Info).ok();
+                    print_log("Shutdown Program.".into(), LogType::Info).await.ok();
                     return;
                 }
                 _ = interval.tick() => {
                     if let Err(e) = tx_ticker.send(AppAction::Tick).await {
-                        print_log(format!("Failed to send tick action: {e}").into(), LogType::Error).ok();
+                        print_log(format!("Failed to send tick action: {e}").into(), LogType::Error).await.ok();
                         return;
-                    }
-                }
-            }
-        }
-    });
-
-    let state_clone = Arc::clone(&app_state);
-    let mut rx_shutdown_logs = tx_shutdown.subscribe();
-
-    let logs_handle: JoinHandle<()> = tokio::spawn(async move {
-        let mut interval = time::interval(Duration::from_secs(2));
-        loop {
-            tokio::select! {
-                _ = rx_shutdown_logs.recv() => {
-                    return;
-                }
-                _ = interval.tick() => {
-                    let mut locked_state = state_clone.lock().await;
-                    if let AppState::Logs(_) = locked_state.state {
-                        match read_log() {
-                            Ok(logs) => {
-                                locked_state.logs = logs;
-                            },
-                            Err(e) => {
-                                print_log(format!("read_log error: {e}").into(), LogType::Error).ok();
-                            },
-                        }
                     }
                 }
             }
@@ -400,9 +402,28 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
     let input_handle: JoinHandle<Result<(), io::Error>> = tokio::spawn(async move {
         let res = handle_input_events(tx_input, rx_shutdown_input).await;
         if let Err(e) = &res {
-            print_log(format!("Input Error: {e}").into(), LogType::Error).ok();
+            print_log(format!("Input Error: {e}").into(), LogType::Error)
+                .await
+                .ok();
         }
         res
+    });
+
+    let tx_logs = tx_action.clone();
+    let mut rx_shutdown_logs = tx_shutdown.subscribe();
+
+    let logs_handle: JoinHandle<()> = tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = rx_shutdown_logs.recv() => {
+                    return;
+                }
+                Err(e) = watch_logs(path.clone(), tx_logs.clone()) => {
+                    print_log(format!("Logs watcher stopped working: {e}").into(), LogType::Error).await.ok();
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                }
+            }
+        }
     });
 
     let api_state = Arc::clone(&app_state);
@@ -418,6 +439,7 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
                 format!("Gateway connection failed: {e}").into(),
                 LogType::Error,
             )
+            .await
             .ok();
         }
     });
@@ -436,6 +458,7 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
                         format!("Failed to send current user update action: {e}").into(),
                         LogType::Error,
                     )
+                    .await
                     .ok();
                 }
             }
@@ -452,6 +475,7 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
                         format!("Failed to send guild update action: {e}").into(),
                         LogType::Error,
                     )
+                    .await
                     .ok();
                 }
             }
@@ -461,6 +485,7 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
                     format!("Failed to get user guilds action: {e}").into(),
                     LogType::Error,
                 )
+                .await
                 .ok();
                 state.status_message = format!("Failed to load servers. {e}");
             }
@@ -473,6 +498,7 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
                         format!("Failed to send DM update action: {e}").into(),
                         LogType::Error,
                     )
+                    .await
                     .ok();
                 }
             }
@@ -538,19 +564,24 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
+    print_log("Launching Program...".into(), LogType::Info)
+        .await
+        .ok();
     dotenvy::dotenv().ok();
     const ENV_TOKEN: &str = "DISCORD_TOKEN";
 
-    let token: String = env::var(ENV_TOKEN).unwrap_or_else(|_| {
-        let msg = "Env Error: DISCORD_TOKEN variable is missing.";
-        eprintln!("{msg}");
-        print_log(msg.into(), LogType::Error).ok();
-        process::exit(1);
-    });
+    let token = match env::var(ENV_TOKEN) {
+        Ok(token) => token,
+        Err(e) => {
+            eprintln!("{e}");
+            print_log(e.into(), LogType::Error).await.ok();
+            process::exit(1);
+        }
+    };
 
     setup_ctrlc_handler();
 
-    let config = config::load_config();
+    let config = config::load_config().await;
 
     if let Err(e) = run_app(token, config).await {
         restore_terminal();
