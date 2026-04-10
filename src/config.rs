@@ -18,14 +18,16 @@ pub struct Config {
     pub emoji_map: Vec<(String, String)>,
 }
 
-fn load_emojis() -> Vec<(String, String)> {
+async fn load_emojis() -> Vec<(String, String)> {
     match serde_json::from_str::<Vec<(String, String)>>(DEFAULT_EMOJIS_JSON) {
         Ok(map) => map,
         Err(e) => {
-            let _ = print_log(
+            print_log(
                 format!("Error parsing emojis dictionary: {e}").into(),
                 LogType::Error,
-            );
+            )
+            .await
+            .ok();
             Vec::new()
         }
     }
@@ -45,20 +47,24 @@ impl Default for Config {
     }
 }
 
-pub fn load_config() -> Config {
+pub async fn load_config() -> Config {
     let app_name = "vimcord";
     match confy::load::<Config>(app_name, "config") {
         Ok(mut cfg) => {
             if cfg.emoji_map.is_empty() {
-                cfg.emoji_map = load_emojis();
+                cfg.emoji_map = load_emojis().await;
                 if let Err(e) = confy::store::<Config>(app_name, "config", cfg.clone()) {
-                    let _ = print_log(format!("Error storing config: {e}").into(), LogType::Error);
+                    print_log(format!("Error storing config: {e}").into(), LogType::Error)
+                        .await
+                        .ok();
                 }
             }
             cfg
         }
         Err(e) => {
-            let _ = print_log(format!("Error loading config: {e}").into(), LogType::Error);
+            print_log(format!("Error loading config: {e}").into(), LogType::Error)
+                .await
+                .ok();
             Config::default()
         }
     }

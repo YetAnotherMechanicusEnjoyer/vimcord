@@ -156,7 +156,9 @@ impl GatewayClient {
                 let msg = WsMessage::Text(serde_json::to_string(&op).unwrap().into());
                 let mut w = write_clone.lock().await;
                 if let Err(e) = w.send(msg).await {
-                    let _ = print_log(format!("Heartbeat failed: {}", e).into(), LogType::Error);
+                    print_log(format!("Heartbeat failed: {}", e).into(), LogType::Error)
+                        .await
+                        .ok();
                     break;
                 }
             }
@@ -174,7 +176,7 @@ impl GatewayClient {
                 Some(outbound_msg) = rx_outbound.recv() => {
                     let mut w = write_for_outbound.lock().await;
                     if let Err(e) = w.send(WsMessage::Text(serde_json::to_string(&outbound_msg).unwrap().into())).await {
-                        let _ = print_log(format!("Failed to send outbound message: {}", e).into(), LogType::Error);
+                        print_log(format!("Failed to send outbound message: {}", e).into(), LogType::Error).await.ok();
                     }
                 }
                 msg_result = read.next() => {
@@ -198,11 +200,11 @@ impl GatewayClient {
                             break;
                         }
                         Some(Err(e)) => {
-                            let _ = print_log(format!("Gateway error: {}", e).into(), LogType::Error);
+                            print_log(format!("Gateway error: {}", e).into(), LogType::Error).await.ok();
                             break;
                         }
                         None => {
-                            let _ = print_log("Gateway connection closed unexpectedly".into(), LogType::Error);
+                            print_log("Gateway connection closed unexpectedly".into(), LogType::Error).await.ok();
                             break;
                         }
                         _ => {}
@@ -327,6 +329,7 @@ impl GatewayClient {
                         format!("Failed to parse presence: {e}").into(),
                         LogType::Error,
                     )
+                    .await
                     .ok();
                 }
             },
@@ -338,6 +341,7 @@ impl GatewayClient {
                             .into(),
                         LogType::Error,
                     )
+                    .await
                     .ok();
                 }
                 if let (Some(guild_id), Ok(members), Some(chunk_index), Some(chunk_count)) = (
@@ -358,13 +362,16 @@ impl GatewayClient {
                 }
             }
             "SESSIONS_REPLACE" => {
-                print_log(format!("SESSION_REPLACE:\n{d}").into(), LogType::Info).ok();
+                print_log(format!("SESSION_REPLACE:{d}").into(), LogType::Info)
+                    .await
+                    .ok();
             }
             e => {
                 print_log(
                     format!("Unhandled event received: {e}").into(),
                     LogType::Info,
                 )
+                .await
                 .ok();
             }
         }
@@ -385,6 +392,7 @@ impl GatewayClient {
                 format!("Error sending request guild members: {e}").into(),
                 LogType::Error,
             )
+            .await
             .ok();
         }
 

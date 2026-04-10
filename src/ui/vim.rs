@@ -5,6 +5,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use crate::{
     App, AppAction, AppState, InputMode,
     api::{Channel, DM, guild::PartialGuild},
+    logs::{LogType, print_log},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -464,14 +465,25 @@ pub async fn handle_vim_keys(
                     if state.selection_index < state.logs.len() {
                         state.selection_index += 1;
                     } else {
-                        if let Some(_oldest) = state.logs.last() {
-                            let older_msgs: Result<Vec<crate::Message>, crate::Error> =
-                                Ok(Vec::new()); // todo
+                        match state.log_reader.read_previous_lines(10).await {
+                            Ok(old_logs) => {
+                                if !old_logs.is_empty() {
+                                    let count = old_logs.len();
 
-                            if let Ok(new_messages) = older_msgs {
-                                for msg in new_messages.into_iter() {
-                                    state.messages.push(msg);
+                                    for log in old_logs {
+                                        state.logs.push(log);
+                                    }
+
+                                    state.selection_index += count;
                                 }
+                            }
+                            Err(e) => {
+                                print_log(
+                                    format!("Failed to read previous logs: {e}").into(),
+                                    LogType::Error,
+                                )
+                                .await
+                                .ok();
                             }
                         }
                     }

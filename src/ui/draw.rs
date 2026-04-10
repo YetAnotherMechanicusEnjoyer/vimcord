@@ -770,7 +770,11 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                 app.chat_scroll_offset = total_visual_height.saturating_sub(max_height);
             }
 
-            let title = "vimcord Client - Logs".to_string();
+            let title = format!(
+                "vimcord Client - Logs ({}/{})",
+                app.selection_index,
+                app.logs.len()
+            );
 
             let paragraph = Paragraph::new(final_content)
                 .block(

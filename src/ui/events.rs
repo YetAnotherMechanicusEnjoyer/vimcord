@@ -167,7 +167,9 @@ async fn input_submit(
                         return Some(KeywordAction::Break);
                     }
                     "debug" => {
-                        print_log(args.join(" ").as_str().into(), LogType::Debug).ok();
+                        print_log(args.join(" ").as_str().into(), LogType::Debug)
+                            .await
+                            .ok();
                     }
                     "logs" => {
                         tx_action.send(AppAction::TransitionToLogs).await.ok();
@@ -191,10 +193,11 @@ async fn input_submit(
                                     format!("Failed to change status: {e}").into(),
                                     LogType::Error,
                                 )
+                                .await
                                 .ok();
                             }
                         } else {
-                            print_log(format!("Failed to change status: Bad usage: \"status <online|dnd|idle|invisible|offline> <text>\": {args:?}").into(), LogType::Error).ok();
+                            print_log(format!("Failed to change status: Bad usage: \"status <online|dnd|idle|invisible|offline> <text>\": {args:?}").into(), LogType::Error).await.ok();
                         }
                     }
                     _ => {}
@@ -268,15 +271,18 @@ async fn input_submit(
                             ))
                             .await
                         {
-                            let _ = print_log(
+                            print_log(
                                 format!("Failed to send message update action: {e}").into(),
                                 LogType::Error,
-                            );
+                            )
+                            .await
+                            .ok();
                         }
                     }
                     Err(e) => {
-                        let _ =
-                            print_log(format!("Error loading DM chat: {e}").into(), LogType::Error);
+                        print_log(format!("Error loading DM chat: {e}").into(), LogType::Error)
+                            .await
+                            .ok();
                     }
                 }
 
@@ -305,7 +311,7 @@ async fn input_submit(
             {
                 Ok(g) => g,
                 Err(e) => {
-                    print_log(e, LogType::Error).ok();
+                    print_log(e, LogType::Error).await.ok();
                     tx_action.send(AppAction::TransitionToGuilds).await.ok();
                     return None;
                 }
@@ -320,6 +326,7 @@ async fn input_submit(
                     format!("Error requesting guild members: {e}").into(),
                     LogType::Error,
                 )
+                .await
                 .ok();
             }
 
@@ -349,10 +356,12 @@ async fn input_submit(
                             .ok();
                     }
                     Err(e) => {
-                        let _ = print_log(
+                        print_log(
                             format!("Failed to load channels: {e}").into(),
                             LogType::Error,
-                        );
+                        )
+                        .await
+                        .ok();
                     }
                 }
                 match api_client_clone
@@ -363,10 +372,12 @@ async fn input_submit(
                         tx_clone.send(AppAction::ApiUpdateEmojis(emojis)).await.ok();
                     }
                     Err(e) => {
-                        let _ = print_log(
+                        print_log(
                             format!("Failed to load custom emojis: {e}").into(),
                             LogType::Error,
-                        );
+                        )
+                        .await
+                        .ok();
                     }
                 }
                 match api_client_clone
@@ -384,6 +395,7 @@ async fn input_submit(
                             format!("Failed to load permission context: {e}").into(),
                             LogType::Error,
                         )
+                        .await
                         .ok();
                     }
                 }
@@ -481,6 +493,7 @@ async fn input_submit(
                             format!("Failed to send message update action: {e}").into(),
                             LogType::Error,
                         )
+                        .await
                         .ok();
                         return None;
                     }
@@ -589,7 +602,9 @@ async fn input_submit(
                                 .ok();
                         }
                         Err(e) => {
-                            let _ = print_log(format!("API Error: {e}").into(), LogType::Error);
+                            print_log(format!("API Error: {e}").into(), LogType::Error)
+                                .await
+                                .ok();
                         }
                     }
                 });
@@ -658,7 +673,9 @@ async fn input_submit(
                     {
                         Ok(_) => {}
                         Err(e) => {
-                            let _ = print_log(format!("API Error: {e}").into(), LogType::Error);
+                            print_log(format!("API Error: {e}").into(), LogType::Error)
+                                .await
+                                .ok();
                         }
                     }
                 });
@@ -885,7 +902,7 @@ pub async fn handle_keys_events(
                             }
                         },
                         Err(e) => {
-                            print_log(e, LogType::Error).ok();
+                            print_log(e, LogType::Error).await.ok();
                             return None;
                         }
                     };
@@ -1212,6 +1229,7 @@ pub async fn handle_keys_events(
                             .await
                         {
                             print_log(format!("Failed to ack message: {e}").into(), LogType::Error)
+                                .await
                                 .ok();
                         }
                     });
@@ -1597,10 +1615,12 @@ pub async fn handle_keys_events(
                     .delete_message(&channel_id_clone, &message_id_clone)
                     .await
                 {
-                    let _ = print_log(
+                    print_log(
                         format!("API Error deleting message: {e}").into(),
                         LogType::Error,
-                    );
+                    )
+                    .await
+                    .ok();
                 }
             });
 
@@ -1626,10 +1646,12 @@ pub async fn handle_keys_events(
                     .edit_message(&channel_id_clone, &message_id_clone, Some(content_clone))
                     .await
                 {
-                    let _ = print_log(
+                    print_log(
                         format!("API Error editing message: {e}").into(),
                         LogType::Error,
-                    );
+                    )
+                    .await
+                    .ok();
                 }
             });
         }
@@ -1743,6 +1765,16 @@ pub async fn handle_keys_events(
             }
 
             return Some(KeywordAction::Continue);
+        }
+        AppAction::NewLogReceived(log) => {
+            state.logs.insert(0, log);
+            if state.selection_index > 0 {
+                state.selection_index += 1;
+            }
+        }
+        AppAction::ClearLogs => {
+            state.logs.clear();
+            state.selection_index = 0;
         }
     }
 
