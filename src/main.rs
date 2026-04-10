@@ -21,7 +21,8 @@ use tokio::{
 
 use crate::{
     api::{
-        AnyChannel, ApiClient, Channel, Emoji, GatewayClient, Guild, Message, PartialMessage, User,
+        AnyChannel, ApiClient, Channel, Emoji, GatewayClient, Guild, Message, PartialMessage,
+        Presence, User,
         channel::PermissionContext,
         dm::DM,
         guild::{GuildMember, PartialGuild},
@@ -99,7 +100,7 @@ pub enum AppAction {
         std::collections::HashMap<String, String>,
         std::collections::HashMap<String, String>,
     ), // (user_id -> status, user_id -> status_text)
-    GatewayPresenceUpdate(String, String, Option<String>), // user_id, status, custom_status_text
+    GatewayPresenceUpdate(Presence), // user_id, status, custom_status_text
     TransitionToChat(Box<AnyChannel>),
     TransitionToEditing(Box<AnyChannel>, Message, String, char),
     TransitionToChannels(Box<Guild>),

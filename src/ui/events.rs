@@ -172,6 +172,31 @@ async fn input_submit(
                     "logs" => {
                         tx_action.send(AppAction::TransitionToLogs).await.ok();
                     }
+                    "status" => {
+                        if let (Some(status), Some(status_text)) = (args.first(), args.get(1)) {
+                            if let Err(e) = state
+                                .api_client
+                                .modify_user_settings(serde_json::json!({
+                                    "custom_status": {
+                                        "text": status_text,
+                                        //"emoji_name": emoji.name,
+                                        //"emoji_id": emoji.id,
+                                        //"expires_at": never (for now)
+                                    },
+                                    "status": status,
+                                }))
+                                .await
+                            {
+                                print_log(
+                                    format!("Failed to change status: {e}").into(),
+                                    LogType::Error,
+                                )
+                                .ok();
+                            }
+                        } else {
+                            print_log(format!("Failed to change status: Bad usage: \"status <online|dnd|idle|invisible|offline> <text>\": {args:?}").into(), LogType::Error).ok();
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -1456,12 +1481,22 @@ pub async fn handle_keys_events(
             state.user_statuses.extend(statuses);
             state.user_status_texts.extend(status_texts);
         }
-        AppAction::GatewayPresenceUpdate(user_id, status, status_text) => {
-            state.user_statuses.insert(user_id.clone(), status);
-            if let Some(text) = status_text {
-                state.user_status_texts.insert(user_id, text);
+        AppAction::GatewayPresenceUpdate(presence) => {
+            state
+                .user_statuses
+                .insert(presence.user.id.clone(), presence.status);
+            if let Some(text) = presence.activities.iter().find_map(|a| {
+                if a.activity_type == 4 {
+                    Some(a.state.clone())
+                } else {
+                    None
+                }
+            }) {
+                state
+                    .user_status_texts
+                    .insert(presence.user.id, text.unwrap_or_default());
             } else {
-                state.user_status_texts.remove(&user_id);
+                state.user_status_texts.remove(&presence.user.id);
             }
         }
         AppAction::GatewayGuildMembersChunk(_, members, _, chunk_count) => {

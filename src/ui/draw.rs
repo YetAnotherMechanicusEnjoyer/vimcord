@@ -725,7 +725,7 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
                     "ERROR" => Color::Red,
                     "WARN" => Color::Yellow,
                     "INFO" => Color::Cyan,
-                    "DEBUG" => Color::Magenta,
+                    "DEBUG" => Color::Green,
                     _ => Color::Green,
                 };
 

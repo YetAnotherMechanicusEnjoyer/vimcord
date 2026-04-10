@@ -7,6 +7,7 @@ use tokio::time::{self, Duration};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message as WsMessage};
 
 use crate::Error;
+use crate::api::Presence;
 use crate::api::guild::GuildMember;
 use crate::logs::{LogType, print_log};
 use crate::{AppAction, api::Message as DiscordMessage};
@@ -314,29 +315,21 @@ impl GatewayClient {
                     .send(AppAction::GatewayReadySupplemental(statuses, status_texts))
                     .await;
             }
-            "PRESENCE_UPDATE" => {
-                if let (Some(user_id), Some(status)) =
-                    (d["user"]["id"].as_str(), d["status"].as_str())
-                {
-                    // Extract custom status text from activities (type 4)
-                    let status_text = d["activities"].as_array().and_then(|activities| {
-                        activities.iter().find_map(|a| {
-                            if a["type"].as_u64() == Some(4) {
-                                a["state"].as_str().map(|s| s.to_string())
-                            } else {
-                                None
-                            }
-                        })
-                    });
-                    let _ = action_tx
-                        .send(AppAction::GatewayPresenceUpdate(
-                            user_id.to_string(),
-                            status.to_string(),
-                            status_text,
-                        ))
-                        .await;
+            "PRESENCE_UPDATE" => match serde_json::from_value::<Presence>(d.clone()) {
+                Ok(presence) => {
+                    action_tx
+                        .send(AppAction::GatewayPresenceUpdate(presence))
+                        .await
+                        .ok();
                 }
-            }
+                Err(e) => {
+                    print_log(
+                        format!("Failed to parse presence: {e}").into(),
+                        LogType::Error,
+                    )
+                    .ok();
+                }
+            },
             "GUILD_MEMBERS_CHUNK" => {
                 if let Ok(not_found) = serde_json::from_value::<Vec<String>>(d["not_found"].clone())
                 {
@@ -363,6 +356,9 @@ impl GatewayClient {
                         .await
                         .ok();
                 }
+            }
+            "SESSIONS_REPLACE" => {
+                print_log(format!("SESSION_REPLACE:\n{d}").into(), LogType::Info).ok();
             }
             e => {
                 print_log(
