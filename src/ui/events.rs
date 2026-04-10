@@ -403,7 +403,7 @@ async fn input_submit(
                 tx_clone.send(AppAction::EndLoading).await.ok();
             });
         }
-        AppState::SelectingChannel(_) => {
+        AppState::SelectingChannel(g) => {
             let permission_context = &state.context;
             let mut text_channels: Vec<&Channel> = Vec::new();
 
@@ -465,6 +465,19 @@ async fn input_submit(
                 ))))
                 .await
                 .ok();
+
+            if let Err(e) = state
+                .gateway_client
+                .subscribe_channel(&g.id, &selected_channel.id)
+                .await
+            {
+                print_log(
+                    format!("Failed to subscribe to a channel: {e}").into(),
+                    LogType::Error,
+                )
+                .await
+                .ok();
+            }
 
             state.input = String::new();
             state.cursor_position = 0;

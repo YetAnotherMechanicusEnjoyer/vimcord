@@ -219,26 +219,54 @@ impl GatewayClient {
 
     async fn handle_dispatch(t: &str, d: serde_json::Value, action_tx: &Sender<AppAction>) {
         match t {
-            "MESSAGE_CREATE" => {
-                if let Ok(msg) = serde_json::from_value::<DiscordMessage>(d) {
-                    let _ = action_tx.send(AppAction::GatewayMessageCreate(msg)).await;
+            "MESSAGE_CREATE" => match serde_json::from_value::<DiscordMessage>(d) {
+                Ok(msg) => {
+                    action_tx
+                        .send(AppAction::GatewayMessageCreate(msg))
+                        .await
+                        .ok();
                 }
-            }
-            "MESSAGE_UPDATE" => {
-                if let Ok(msg) = serde_json::from_value::<crate::api::PartialMessage>(d) {
-                    let _ = action_tx.send(AppAction::GatewayMessageUpdate(msg)).await;
+                Err(e) => {
+                    print_log(
+                        format!("Failed to parse created message: {e}").into(),
+                        LogType::Error,
+                    )
+                    .await
+                    .ok();
                 }
-            }
-            "MESSAGE_DELETE" => {
-                if let (Some(id), Some(channel_id)) = (d["id"].as_str(), d["channel_id"].as_str()) {
-                    let _ = action_tx
+            },
+            "MESSAGE_UPDATE" => match serde_json::from_value::<crate::api::PartialMessage>(d) {
+                Ok(msg) => {
+                    action_tx
+                        .send(AppAction::GatewayMessageUpdate(msg))
+                        .await
+                        .ok();
+                }
+                Err(e) => {
+                    print_log(
+                        format!("Failed to parse updated message: {e}").into(),
+                        LogType::Error,
+                    )
+                    .await
+                    .ok();
+                }
+            },
+            "MESSAGE_DELETE" => match (d["id"].as_str(), d["channel_id"].as_str()) {
+                (Some(id), Some(channel_id)) => {
+                    action_tx
                         .send(AppAction::GatewayMessageDelete(
                             id.to_string(),
                             channel_id.to_string(),
                         ))
-                        .await;
+                        .await
+                        .ok();
                 }
-            }
+                _ => {
+                    print_log("Failed to parse deleted message.".into(), LogType::Error)
+                        .await
+                        .ok();
+                }
+            },
             "TYPING_START" => {
                 if let (Some(channel_id), Some(user_id), Some(_timestamp)) = (
                     d["channel_id"].as_str(),
@@ -390,6 +418,32 @@ impl GatewayClient {
         if let Err(e) = self.outbound_tx.send(request).await {
             print_log(
                 format!("Error sending request guild members: {e}").into(),
+                LogType::Error,
+            )
+            .await
+            .ok();
+        }
+
+        Ok(())
+    }
+
+    pub async fn subscribe_channel(&self, guild_id: &str, channel_id: &str) -> Result<(), Error> {
+        let request = serde_json::json!({
+            "op": 14,
+            "d": {
+                "guild_id": guild_id,
+                "channels": {
+                    channel_id: [[0, 99]]
+                },
+                "typing": true,
+                "threads": true,
+                "activities": true,
+            }
+        });
+
+        if let Err(e) = self.outbound_tx.send(request).await {
+            print_log(
+                format!("Error subscribing to a channel: {e}").into(),
                 LogType::Error,
             )
             .await
