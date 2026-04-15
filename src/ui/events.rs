@@ -1358,7 +1358,9 @@ pub async fn handle_keys_events(
                 msgs.push(msg.clone());
                 // Sort by descending ID: newest messages first (to match REST API response)
                 msgs.sort_by_key(|m| std::cmp::Reverse(m.id.parse::<u64>().unwrap_or_default()));
-                if state.selection_index > 0 {
+                if state.selection_index > 0
+                    && let AppState::Chatting(_) = &state.state
+                {
                     state.selection_index += 1;
                 }
                 state.messages = msgs;
@@ -1561,7 +1563,9 @@ pub async fn handle_keys_events(
             msgs.retain(|m| m.id != id);
             state.messages = msgs;
             state.deleted_message_ids.insert(id);
-            if state.selection_index > 0 {
+            if state.selection_index > 0
+                && let AppState::Chatting(_) = &state.state
+            {
                 state.selection_index -= 1;
             }
         }
