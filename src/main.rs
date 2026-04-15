@@ -179,6 +179,7 @@ pub struct App {
     display_username: bool,
     logs: Vec<String>,
     log_reader: LogReader,
+    pub is_invisible_dnd: bool,
 }
 
 pub struct Setup {
@@ -242,6 +243,7 @@ impl Default for App {
             display_username: false,
             logs: Vec::new(),
             log_reader: LogReader::default(),
+            is_invisible_dnd: false,
         }
     }
 }
@@ -320,6 +322,7 @@ impl App {
             display_username,
             logs: Vec::new(),
             log_reader,
+            is_invisible_dnd: false,
         }
     }
 }

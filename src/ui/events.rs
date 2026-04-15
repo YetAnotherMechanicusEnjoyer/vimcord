@@ -1396,56 +1396,66 @@ pub async fn handle_keys_events(
                         let api_client = state.api_client.clone();
                         let tx = tx_action.clone();
 
-                        tokio::spawn(async move {
-                            let (summary, body) = if discreet {
-                                let body = if is_dm_clone {
-                                    "Sent you a DM".to_string()
-                                } else {
-                                    "Mentioned you in a channel".to_string()
-                                };
-                                (sender, body)
-                            } else {
-                                let body =
-                                    if msg_clone.content.as_ref().is_some_and(|c| !c.is_empty()) {
-                                        msg_clone.map_mentions(guild_clone)
+                        let is_dnd = state.is_invisible_dnd
+                            || state
+                                .current_user
+                                .as_ref()
+                                .and_then(|u| state.user_statuses.get(&u.id))
+                                .map(|s| s.as_str())
+                                == Some("dnd");
+
+                        if !is_dnd {
+                            tokio::spawn(async move {
+                                let (summary, body) = if discreet {
+                                    let body = if is_dm_clone {
+                                        "Sent you a DM".to_string()
                                     } else {
-                                        "Sent an attachment".to_string()
+                                        "Mentioned you in a channel".to_string()
                                     };
-                                let mut final_sender = sender.clone();
-
-                                if !is_dm_clone {
-                                    let mut channel_name = String::new();
-                                    if let Some(name) = cached_channel_name {
-                                        channel_name = format!("#{}", name);
-                                    } else if let Ok(crate::api::AnyChannel::Guild(c)) =
-                                        api_client.get_channel(&msg_clone.channel_id).await
-                                    {
-                                        channel_name = format!("#{}", c.name);
-                                    }
-
-                                    if let Some(gn) = guild_name {
-                                        if !channel_name.is_empty() {
-                                            final_sender =
-                                                format!("{} in {} ({})", sender, gn, channel_name);
+                                    (sender, body)
+                                } else {
+                                    let body =
+                                        if msg_clone.content.as_ref().is_some_and(|c| !c.is_empty()) {
+                                            msg_clone.map_mentions(guild_clone)
                                         } else {
-                                            final_sender = format!("{} in {}", sender, gn);
+                                            "Sent an attachment".to_string()
+                                        };
+                                    let mut final_sender = sender.clone();
+
+                                    if !is_dm_clone {
+                                        let mut channel_name = String::new();
+                                        if let Some(name) = cached_channel_name {
+                                            channel_name = format!("#{}", name);
+                                        } else if let Ok(crate::api::AnyChannel::Guild(c)) =
+                                            api_client.get_channel(&msg_clone.channel_id).await
+                                        {
+                                            channel_name = format!("#{}", c.name);
                                         }
-                                    } else if !channel_name.is_empty() {
-                                        final_sender = format!("{} in {}", sender, channel_name);
+
+                                        if let Some(gn) = guild_name {
+                                            if !channel_name.is_empty() {
+                                                final_sender =
+                                                    format!("{} in {} ({})", sender, gn, channel_name);
+                                            } else {
+                                                final_sender = format!("{} in {}", sender, gn);
+                                            }
+                                        } else if !channel_name.is_empty() {
+                                            final_sender = format!("{} in {}", sender, channel_name);
+                                        }
                                     }
-                                }
 
-                                (final_sender, body)
-                            };
+                                    (final_sender, body)
+                                };
 
-                            let _ = tx
-                                .send(AppAction::DesktopNotification(
-                                    summary,
-                                    body,
-                                    msg_clone.channel_id,
-                                ))
-                                .await;
-                        });
+                                let _ = tx
+                                    .send(AppAction::DesktopNotification(
+                                        summary,
+                                        body,
+                                        msg_clone.channel_id,
+                                    ))
+                                    .await;
+                            });
+                        }
                     }
 
                     if is_dm {

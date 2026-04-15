@@ -38,8 +38,16 @@ pub async fn handle_command(
                     None
                 };
 
+                let actual_status = if status == "invisible_dnd" {
+                    state.is_invisible_dnd = true;
+                    "invisible"
+                } else {
+                    state.is_invisible_dnd = false;
+                    status.as_str()
+                };
+
                 let mut settings_payload = serde_json::json!({
-                    "status": status,
+                    "status": actual_status,
                 });
 
                 if let Some(text) = &status_text {
@@ -65,7 +73,7 @@ pub async fn handle_command(
 
                 if let Err(e) = state
                     .gateway_client
-                    .update_presence(status, status_text.as_deref())
+                    .update_presence(actual_status, status_text.as_deref())
                     .await
                 {
                     print_log(
@@ -74,6 +82,15 @@ pub async fn handle_command(
                     )
                     .await
                     .ok();
+                } else {
+                    if let Some(user) = state.current_user.clone() {
+                        state.user_statuses.insert(user.id.clone(), actual_status.to_string());
+                        if let Some(text) = &status_text {
+                            state.user_status_texts.insert(user.id.clone(), text.clone());
+                        } else {
+                            state.user_status_texts.remove(&user.id);
+                        }
+                    }
                 }
             } else {
                 print_log(
