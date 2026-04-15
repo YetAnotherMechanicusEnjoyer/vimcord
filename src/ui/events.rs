@@ -154,7 +154,9 @@ async fn input_submit(
 
         match &state.mode {
             InputMode::Command => {
-                if let Some(action) = crate::ui::commands::handle_command(state, tx_action, input).await {
+                if let Some(action) =
+                    crate::ui::commands::handle_command(state, tx_action, input).await
+                {
                     return Some(action);
                 }
             }
@@ -1414,12 +1416,15 @@ pub async fn handle_keys_events(
                                     };
                                     (sender, body)
                                 } else {
-                                    let body =
-                                        if msg_clone.content.as_ref().is_some_and(|c| !c.is_empty()) {
-                                            msg_clone.map_mentions(guild_clone)
-                                        } else {
-                                            "Sent an attachment".to_string()
-                                        };
+                                    let body = if msg_clone
+                                        .content
+                                        .as_ref()
+                                        .is_some_and(|c| !c.is_empty())
+                                    {
+                                        msg_clone.map_mentions(guild_clone)
+                                    } else {
+                                        "Sent an attachment".to_string()
+                                    };
                                     let mut final_sender = sender.clone();
 
                                     if !is_dm_clone {
@@ -1434,13 +1439,16 @@ pub async fn handle_keys_events(
 
                                         if let Some(gn) = guild_name {
                                             if !channel_name.is_empty() {
-                                                final_sender =
-                                                    format!("{} in {} ({})", sender, gn, channel_name);
+                                                final_sender = format!(
+                                                    "{} in {} ({})",
+                                                    sender, gn, channel_name
+                                                );
                                             } else {
                                                 final_sender = format!("{} in {}", sender, gn);
                                             }
                                         } else if !channel_name.is_empty() {
-                                            final_sender = format!("{} in {}", sender, channel_name);
+                                            final_sender =
+                                                format!("{} in {}", sender, channel_name);
                                         }
                                     }
 

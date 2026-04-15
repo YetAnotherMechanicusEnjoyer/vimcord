@@ -84,9 +84,13 @@ pub async fn handle_command(
                     .ok();
                 } else {
                     if let Some(user) = state.current_user.clone() {
-                        state.user_statuses.insert(user.id.clone(), actual_status.to_string());
+                        state
+                            .user_statuses
+                            .insert(user.id.clone(), actual_status.to_string());
                         if let Some(text) = &status_text {
-                            state.user_status_texts.insert(user.id.clone(), text.clone());
+                            state
+                                .user_status_texts
+                                .insert(user.id.clone(), text.clone());
                         } else {
                             state.user_status_texts.remove(&user.id);
                         }
