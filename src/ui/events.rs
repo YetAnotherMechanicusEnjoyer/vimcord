@@ -154,53 +154,10 @@ async fn input_submit(
 
         match &state.mode {
             InputMode::Command => {
-                let (cmd, args) = {
-                    let mut s = input.split(' ');
-                    (
-                        s.next().unwrap_or_default().to_lowercase(),
-                        s.map(|s| s.to_string()).collect::<Vec<String>>(),
-                    )
-                };
-
-                match cmd.as_str() {
-                    "quit" | "q" => {
-                        return Some(KeywordAction::Break);
-                    }
-                    "debug" => {
-                        print_log(args.join(" ").as_str().into(), LogType::Debug)
-                            .await
-                            .ok();
-                    }
-                    "logs" => {
-                        tx_action.send(AppAction::TransitionToLogs).await.ok();
-                    }
-                    "status" => {
-                        if let (Some(status), Some(status_text)) = (args.first(), args.get(1)) {
-                            if let Err(e) = state
-                                .api_client
-                                .modify_user_settings(serde_json::json!({
-                                    "custom_status": {
-                                        "text": status_text,
-                                        //"emoji_name": emoji.name,
-                                        //"emoji_id": emoji.id,
-                                        //"expires_at": never (for now)
-                                    },
-                                    "status": status,
-                                }))
-                                .await
-                            {
-                                print_log(
-                                    format!("Failed to change status: {e}").into(),
-                                    LogType::Error,
-                                )
-                                .await
-                                .ok();
-                            }
-                        } else {
-                            print_log(format!("Failed to change status: Bad usage: \"status <online|dnd|idle|invisible|offline> <text>\": {args:?}").into(), LogType::Error).await.ok();
-                        }
-                    }
-                    _ => {}
+                if let Some(action) =
+                    crate::ui::commands::handle_command(state, tx_action, input).await
+                {
+                    return Some(action);
                 }
             }
             InputMode::Search => {
@@ -1441,56 +1398,72 @@ pub async fn handle_keys_events(
                         let api_client = state.api_client.clone();
                         let tx = tx_action.clone();
 
-                        tokio::spawn(async move {
-                            let (summary, body) = if discreet {
-                                let body = if is_dm_clone {
-                                    "Sent you a DM".to_string()
+                        let is_dnd = state.is_invisible_dnd
+                            || state
+                                .current_user
+                                .as_ref()
+                                .and_then(|u| state.user_statuses.get(&u.id))
+                                .map(|s| s.as_str())
+                                == Some("dnd");
+
+                        if !is_dnd {
+                            tokio::spawn(async move {
+                                let (summary, body) = if discreet {
+                                    let body = if is_dm_clone {
+                                        "Sent you a DM".to_string()
+                                    } else {
+                                        "Mentioned you in a channel".to_string()
+                                    };
+                                    (sender, body)
                                 } else {
-                                    "Mentioned you in a channel".to_string()
-                                };
-                                (sender, body)
-                            } else {
-                                let body =
-                                    if msg_clone.content.as_ref().is_some_and(|c| !c.is_empty()) {
+                                    let body = if msg_clone
+                                        .content
+                                        .as_ref()
+                                        .is_some_and(|c| !c.is_empty())
+                                    {
                                         msg_clone.map_mentions(guild_clone)
                                     } else {
                                         "Sent an attachment".to_string()
                                     };
-                                let mut final_sender = sender.clone();
+                                    let mut final_sender = sender.clone();
 
-                                if !is_dm_clone {
-                                    let mut channel_name = String::new();
-                                    if let Some(name) = cached_channel_name {
-                                        channel_name = format!("#{}", name);
-                                    } else if let Ok(crate::api::AnyChannel::Guild(c)) =
-                                        api_client.get_channel(&msg_clone.channel_id).await
-                                    {
-                                        channel_name = format!("#{}", c.name);
-                                    }
-
-                                    if let Some(gn) = guild_name {
-                                        if !channel_name.is_empty() {
-                                            final_sender =
-                                                format!("{} in {} ({})", sender, gn, channel_name);
-                                        } else {
-                                            final_sender = format!("{} in {}", sender, gn);
+                                    if !is_dm_clone {
+                                        let mut channel_name = String::new();
+                                        if let Some(name) = cached_channel_name {
+                                            channel_name = format!("#{}", name);
+                                        } else if let Ok(crate::api::AnyChannel::Guild(c)) =
+                                            api_client.get_channel(&msg_clone.channel_id).await
+                                        {
+                                            channel_name = format!("#{}", c.name);
                                         }
-                                    } else if !channel_name.is_empty() {
-                                        final_sender = format!("{} in {}", sender, channel_name);
+
+                                        if let Some(gn) = guild_name {
+                                            if !channel_name.is_empty() {
+                                                final_sender = format!(
+                                                    "{} in {} ({})",
+                                                    sender, gn, channel_name
+                                                );
+                                            } else {
+                                                final_sender = format!("{} in {}", sender, gn);
+                                            }
+                                        } else if !channel_name.is_empty() {
+                                            final_sender =
+                                                format!("{} in {}", sender, channel_name);
+                                        }
                                     }
-                                }
 
-                                (final_sender, body)
-                            };
+                                    (final_sender, body)
+                                };
 
-                            let _ = tx
-                                .send(AppAction::DesktopNotification(
-                                    summary,
-                                    body,
-                                    msg_clone.channel_id,
-                                ))
-                                .await;
-                        });
+                                let _ = tx
+                                    .send(AppAction::DesktopNotification(
+                                        summary,
+                                        body,
+                                        msg_clone.channel_id,
+                                    ))
+                                    .await;
+                            });
+                        }
                     }
 
                     if is_dm {
