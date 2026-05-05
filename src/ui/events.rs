@@ -710,12 +710,13 @@ async fn move_selection(state: &mut MutexGuard<'_, App>, n: i32, total_filtered_
                     if c.channel_type == 4 {
                         let mut list_items_to_render: Vec<&Channel> = Vec::new();
 
-                        let name_matches = filter_text.is_empty()
-                            || c.name.to_lowercase().contains(&filter_text);
+                        let name_matches =
+                            filter_text.is_empty() || c.name.to_lowercase().contains(&filter_text);
 
-                        let child_matches = c.children.as_ref().is_some_and(|children| {
-                            children.iter().any(should_display_content)
-                        });
+                        let child_matches = c
+                            .children
+                            .as_ref()
+                            .is_some_and(|children| children.iter().any(should_display_content));
 
                         if name_matches || child_matches {
                             list_items_to_render.push(c);
@@ -744,8 +745,7 @@ async fn move_selection(state: &mut MutexGuard<'_, App>, n: i32, total_filtered_
                     state.selection_index - n.unsigned_abs() as usize
                 };
             } else {
-                state.selection_index =
-                    (state.selection_index + n.unsigned_abs() as usize) % len;
+                state.selection_index = (state.selection_index + n.unsigned_abs() as usize) % len;
             }
         }
         AppState::EmojiSelection(_) if total_filtered_emojis > 0 => {
