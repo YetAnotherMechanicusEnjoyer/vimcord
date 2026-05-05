@@ -129,6 +129,7 @@ pub enum InputMode {
     Insert,
     Command,
     Search,
+    Visual,
 }
 
 #[derive(Debug)]
@@ -530,7 +531,7 @@ async fn run_app(token: String, config: config::Config) -> Result<(), Error> {
                 execute!(io::stdout(), SetCursorStyle::BlinkingBar).ok();
             } else {
                 match state_guard.mode {
-                    InputMode::Normal => {
+                    InputMode::Normal | InputMode::Visual => {
                         execute!(io::stdout(), SetCursorStyle::BlinkingBlock).ok();
                     }
                     InputMode::Insert | InputMode::Command | InputMode::Search => {

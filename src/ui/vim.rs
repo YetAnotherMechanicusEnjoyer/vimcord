@@ -32,6 +32,7 @@ pub struct VimState {
     pub operator: Option<VimOperator>,
     pub pending_keys: String,
     pub last_action_time: Instant,
+    pub visual_start: Option<usize>,
 }
 
 impl Default for VimState {
@@ -40,6 +41,7 @@ impl Default for VimState {
             operator: None,
             pending_keys: String::new(),
             last_action_time: Instant::now(),
+            visual_start: None,
         }
     }
 }
@@ -592,6 +594,26 @@ pub async fn handle_vim_keys(
             }
         }
         'd' => {
+            if state.mode == InputMode::Visual {
+                let visual_start = state.vim_state.as_ref().and_then(|vs| vs.visual_start);
+                if let Some(vs) = visual_start {
+                    let start = vs.min(state.cursor_position);
+                    let end = vs.max(state.cursor_position);
+                    let end_len = state.input[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(0);
+                    let end = (end + end_len).min(state.input.len());
+                    if start < end {
+                        state.input.drain(start..end);
+                        state.cursor_position = start;
+                    }
+                }
+                if let Some(vim_state) = &mut state.vim_state {
+                    vim_state.visual_start = None;
+                }
+                state.mode = InputMode::Normal;
+                clamp_cursor(&mut state);
+                return;
+            }
+
             if let AppState::Chatting(channel) = &state.state
                 && state.selection_index > 0
             {
@@ -664,7 +686,41 @@ pub async fn handle_vim_keys(
             }
         }
 
+        'v' => {
+            if state.mode == InputMode::Normal {
+                state.mode = InputMode::Visual;
+                let cp = state.cursor_position;
+                if let Some(vim_state) = &mut state.vim_state {
+                    vim_state.visual_start = Some(cp);
+                }
+            } else if state.mode == InputMode::Visual {
+                state.mode = InputMode::Normal;
+                if let Some(vim_state) = &mut state.vim_state {
+                    vim_state.visual_start = None;
+                }
+            }
+        }
         'x' => {
+            if state.mode == InputMode::Visual {
+                let visual_start = state.vim_state.as_ref().and_then(|vs| vs.visual_start);
+                if let Some(vs) = visual_start {
+                    let start = vs.min(state.cursor_position);
+                    let end = vs.max(state.cursor_position);
+                    let end_len = state.input[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(0);
+                    let end = (end + end_len).min(state.input.len());
+                    if start < end {
+                        state.input.drain(start..end);
+                        state.cursor_position = start;
+                    }
+                }
+                if let Some(vim_state) = &mut state.vim_state {
+                    vim_state.visual_start = None;
+                }
+                state.mode = InputMode::Normal;
+                clamp_cursor(&mut state);
+                return;
+            }
+
             if let AppState::Chatting(_) = &state.state
                 && state.selection_index > 0
             {
