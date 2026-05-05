@@ -605,16 +605,28 @@ pub async fn handle_vim_keys(
                 if let Some(vs) = visual_start {
                     let mut start = vs.min(state.cursor_position);
                     let mut end = vs.max(state.cursor_position);
-                    let end_len = state.input[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(0);
+                    let end_len = state.input[end..]
+                        .chars()
+                        .next()
+                        .map(|c| c.len_utf8())
+                        .unwrap_or(0);
                     end = (end + end_len).min(state.input.len());
                     if state.mode == InputMode::VisualLine {
                         start = state.input[..start].rfind('\n').map(|i| i + 1).unwrap_or(0);
-                        end = state.input[end..].find('\n').map(|i| end + i + 1).unwrap_or(state.input.len());
+                        end = state.input[end..]
+                            .find('\n')
+                            .map(|i| end + i + 1)
+                            .unwrap_or(state.input.len());
                     }
                     if start < end {
                         let deleted: String = state.input.drain(start..end).collect();
+                        let is_linewise = state.mode == InputMode::VisualLine;
                         if let Some(vim_state) = &mut state.vim_state {
-                            vim_state.yank_buffer = deleted;
+                            if is_linewise {
+                                vim_state.yank_buffer = format!("\n{}", deleted.trim_matches('\n'));
+                            } else {
+                                vim_state.yank_buffer = deleted;
+                            }
                         }
                         state.cursor_position = start;
                     }
@@ -676,14 +688,14 @@ pub async fn handle_vim_keys(
                         .drain(current_line_start..next_newline_index + 1)
                         .collect();
                     if let Some(vim_state) = &mut state.vim_state {
-                        vim_state.yank_buffer = deleted;
+                        vim_state.yank_buffer = format!("\n{}", deleted.trim_matches('\n'));
                     }
                     state.cursor_position = current_line_start;
                 } else if current_line_start > 0 {
                     let len = state.input.len();
                     let deleted: String = state.input.drain(current_line_start - 1..len).collect();
                     if let Some(vim_state) = &mut state.vim_state {
-                        vim_state.yank_buffer = deleted;
+                        vim_state.yank_buffer = format!("\n{}", deleted.trim_matches('\n'));
                     }
                     let prev_line_start = state.input[..current_line_start - 1]
                         .rfind('\n')
@@ -694,7 +706,7 @@ pub async fn handle_vim_keys(
                     let deleted = state.input.clone();
                     state.input.clear();
                     if let Some(vim_state) = &mut state.vim_state {
-                        vim_state.yank_buffer = deleted;
+                        vim_state.yank_buffer = format!("\n{}", deleted.trim_matches('\n'));
                     }
                     state.cursor_position = 0;
                 }
@@ -744,16 +756,28 @@ pub async fn handle_vim_keys(
                 if let Some(vs) = visual_start {
                     let mut start = vs.min(state.cursor_position);
                     let mut end = vs.max(state.cursor_position);
-                    let end_len = state.input[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(0);
+                    let end_len = state.input[end..]
+                        .chars()
+                        .next()
+                        .map(|c| c.len_utf8())
+                        .unwrap_or(0);
                     end = (end + end_len).min(state.input.len());
                     if state.mode == InputMode::VisualLine {
                         start = state.input[..start].rfind('\n').map(|i| i + 1).unwrap_or(0);
-                        end = state.input[end..].find('\n').map(|i| end + i + 1).unwrap_or(state.input.len());
+                        end = state.input[end..]
+                            .find('\n')
+                            .map(|i| end + i + 1)
+                            .unwrap_or(state.input.len());
                     }
                     if start < end {
                         let deleted: String = state.input.drain(start..end).collect();
+                        let is_linewise = state.mode == InputMode::VisualLine;
                         if let Some(vim_state) = &mut state.vim_state {
-                            vim_state.yank_buffer = deleted;
+                            if is_linewise {
+                                vim_state.yank_buffer = format!("\n{}", deleted.trim_matches('\n'));
+                            } else {
+                                vim_state.yank_buffer = deleted;
+                            }
                         }
                         state.cursor_position = start;
                     }
@@ -790,16 +814,28 @@ pub async fn handle_vim_keys(
                 if let Some(vs) = visual_start {
                     let mut start = vs.min(state.cursor_position);
                     let mut end = vs.max(state.cursor_position);
-                    let end_len = state.input[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(0);
+                    let end_len = state.input[end..]
+                        .chars()
+                        .next()
+                        .map(|c| c.len_utf8())
+                        .unwrap_or(0);
                     end = (end + end_len).min(state.input.len());
                     if state.mode == InputMode::VisualLine {
                         start = state.input[..start].rfind('\n').map(|i| i + 1).unwrap_or(0);
-                        end = state.input[end..].find('\n').map(|i| end + i + 1).unwrap_or(state.input.len());
+                        end = state.input[end..]
+                            .find('\n')
+                            .map(|i| end + i + 1)
+                            .unwrap_or(state.input.len());
                     }
                     if start < end {
                         let yanked = state.input[start..end].to_string();
+                        let is_linewise = state.mode == InputMode::VisualLine;
                         if let Some(vim_state) = &mut state.vim_state {
-                            vim_state.yank_buffer = yanked;
+                            if is_linewise {
+                                vim_state.yank_buffer = format!("\n{}", yanked.trim_matches('\n'));
+                            } else {
+                                vim_state.yank_buffer = yanked;
+                            }
                         }
                     }
                 }
@@ -815,15 +851,15 @@ pub async fn handle_vim_keys(
                         .rfind('\n')
                         .map(|i| i + 1)
                         .unwrap_or(0);
-                    
+
                     let next_newline_index = state.input[current_pos..]
                         .find('\n')
                         .map(|i| current_pos + i)
                         .unwrap_or(state.input.len());
-                        
+
                     let yanked = state.input[current_line_start..next_newline_index].to_string();
                     if let Some(vim_state) = &mut state.vim_state {
-                        vim_state.yank_buffer = yanked;
+                        vim_state.yank_buffer = format!("\n{}", yanked.trim_matches('\n'));
                         vim_state.operator = None;
                     }
                 } else if let Some(vim_state) = &mut state.vim_state {
@@ -842,13 +878,30 @@ pub async fn handle_vim_keys(
                 let yanked = vim_state.yank_buffer.clone();
                 if !yanked.is_empty() {
                     let mut pos = state.cursor_position;
-                    if pos < state.input.len() {
-                        let char_len = state.input[pos..].chars().next().map(|c| c.len_utf8()).unwrap_or(0);
-                        pos += char_len;
+                    if yanked.starts_with('\n') {
+                        pos = state.input[pos..]
+                            .find('\n')
+                            .map(|i| pos + i)
+                            .unwrap_or(state.input.len());
+                        state.input.insert_str(pos, &yanked);
+                        state.cursor_position = pos + 1;
+                    } else {
+                        if pos < state.input.len() {
+                            let char_len = state.input[pos..]
+                                .chars()
+                                .next()
+                                .map(|c| c.len_utf8())
+                                .unwrap_or(0);
+                            pos += char_len;
+                        }
+                        state.input.insert_str(pos, &yanked);
+                        let last_char_len = yanked
+                            .chars()
+                            .next_back()
+                            .map(|c| c.len_utf8())
+                            .unwrap_or(0);
+                        state.cursor_position = pos + yanked.len() - last_char_len;
                     }
-                    state.input.insert_str(pos, &yanked);
-                    let last_char_len = yanked.chars().next_back().map(|c| c.len_utf8()).unwrap_or(0);
-                    state.cursor_position = pos + yanked.len() - last_char_len;
                     clamp_cursor(&mut state);
                 }
             }
@@ -862,10 +915,21 @@ pub async fn handle_vim_keys(
             if let Some(vim_state) = &state.vim_state {
                 let yanked = vim_state.yank_buffer.clone();
                 if !yanked.is_empty() {
-                    let pos = state.cursor_position;
-                    state.input.insert_str(pos, &yanked);
-                    let last_char_len = yanked.chars().next_back().map(|c| c.len_utf8()).unwrap_or(0);
-                    state.cursor_position = pos + yanked.len() - last_char_len;
+                    let mut pos = state.cursor_position;
+                    if yanked.starts_with('\n') {
+                        pos = state.input[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
+                        let to_insert = format!("{}\n", &yanked[1..]);
+                        state.input.insert_str(pos, &to_insert);
+                        state.cursor_position = pos;
+                    } else {
+                        state.input.insert_str(pos, &yanked);
+                        let last_char_len = yanked
+                            .chars()
+                            .next_back()
+                            .map(|c| c.len_utf8())
+                            .unwrap_or(0);
+                        state.cursor_position = pos + yanked.len() - last_char_len;
+                    }
                     clamp_cursor(&mut state);
                 }
             }

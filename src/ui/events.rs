@@ -819,11 +819,12 @@ pub async fn handle_keys_events(
         AppAction::InputEscape => {
             // In vim mode, Esc switches from Insert to Normal mode and returns early.
             // In non-vim mode (or vim Normal mode), Esc triggers navigation (handled below).
-            if state.vim_mode && (state.mode == InputMode::Insert
-                || state.mode == InputMode::Command
-                || state.mode == InputMode::Search
-                || state.mode == InputMode::Visual
-                || state.mode == InputMode::VisualLine)
+            if state.vim_mode
+                && (state.mode == InputMode::Insert
+                    || state.mode == InputMode::Command
+                    || state.mode == InputMode::Search
+                    || state.mode == InputMode::Visual
+                    || state.mode == InputMode::VisualLine)
             {
                 state.mode = InputMode::Normal;
                 if let Some(vim_state) = &mut state.vim_state {
