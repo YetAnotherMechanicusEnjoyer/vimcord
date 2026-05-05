@@ -924,8 +924,68 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
         _ => format!("Input: {}", display_status_message),
     };
 
+    let input_text = if app.mode == InputMode::Visual || app.mode == InputMode::VisualLine {
+        if let Some(vim_state) = &app.vim_state {
+            if let Some(visual_start) = vim_state.visual_start {
+                let mut start = visual_start.min(app.cursor_position);
+                let mut end = visual_start.max(app.cursor_position);
+                let end_len = app.input[end..]
+                    .chars()
+                    .next()
+                    .map(|c| c.len_utf8())
+                    .unwrap_or(0);
+                end = (end + end_len).min(app.input.len());
+
+                if app.mode == InputMode::VisualLine {
+                    start = app.input[..start].rfind('\n').map(|i| i + 1).unwrap_or(0);
+                    end = app.input[end..]
+                        .find('\n')
+                        .map(|i| end + i + 1)
+                        .unwrap_or(app.input.len());
+                }
+
+                let mut lines = Vec::new();
+                let mut current_pos = 0;
+
+                for line in app.input.split('\n') {
+                    let line_start = current_pos;
+                    let line_end = current_pos + line.len();
+
+                    let mut spans = vec![];
+                    let overlap_start = start.max(line_start);
+                    let overlap_end = end.min(line_end);
+
+                    if overlap_start < overlap_end {
+                        if line_start < overlap_start {
+                            spans.push(Span::raw(&app.input[line_start..overlap_start]));
+                        }
+                        spans.push(Span::styled(
+                            &app.input[overlap_start..overlap_end],
+                            Style::default().reversed(),
+                        ));
+                        if overlap_end < line_end {
+                            spans.push(Span::raw(&app.input[overlap_end..line_end]));
+                        }
+                    } else {
+                        spans.push(Span::raw(&app.input[line_start..line_end]));
+                    }
+
+                    lines.push(Line::from(spans));
+                    current_pos = line_end + 1;
+                }
+                Text::from(lines)
+            } else {
+                Text::from(app.input.as_str())
+            }
+        } else {
+            Text::from(app.input.as_str())
+        }
+    } else {
+        Text::from(app.input.as_str())
+    };
+
     f.render_widget(
-        Paragraph::new(app.input.as_str()).block(
+        Paragraph::new(input_text).block(
             Block::default()
                 .title(Span::styled(title, Style::default().fg(title_color)))
                 .borders(Borders::ALL)
