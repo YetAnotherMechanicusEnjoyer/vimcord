@@ -924,13 +924,18 @@ pub fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
         _ => format!("Input: {}", display_status_message),
     };
 
-    let input_text = if let InputMode::Visual = app.mode {
+    let input_text = if app.mode == InputMode::Visual || app.mode == InputMode::VisualLine {
         if let Some(vim_state) = &app.vim_state {
             if let Some(visual_start) = vim_state.visual_start {
-                let start = visual_start.min(app.cursor_position);
-                let end = visual_start.max(app.cursor_position);
+                let mut start = visual_start.min(app.cursor_position);
+                let mut end = visual_start.max(app.cursor_position);
                 let end_len = app.input[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(0);
-                let end = (end + end_len).min(app.input.len());
+                end = (end + end_len).min(app.input.len());
+                
+                if app.mode == InputMode::VisualLine {
+                    start = app.input[..start].rfind('\n').map(|i| i + 1).unwrap_or(0);
+                    end = app.input[end..].find('\n').map(|i| end + i + 1).unwrap_or(app.input.len());
+                }
                 
                 let mut lines = Vec::new();
                 let mut current_pos = 0;

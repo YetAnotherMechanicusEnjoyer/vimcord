@@ -822,7 +822,8 @@ pub async fn handle_keys_events(
             if state.vim_mode && (state.mode == InputMode::Insert
                 || state.mode == InputMode::Command
                 || state.mode == InputMode::Search
-                || state.mode == InputMode::Visual)
+                || state.mode == InputMode::Visual
+                || state.mode == InputMode::VisualLine)
             {
                 state.mode = InputMode::Normal;
                 if let Some(vim_state) = &mut state.vim_state {
@@ -952,7 +953,7 @@ pub async fn handle_keys_events(
                 handle_user_typing(&mut state);
             } else {
                 match state.mode {
-                    InputMode::Normal | InputMode::Visual => {
+                    InputMode::Normal | InputMode::Visual | InputMode::VisualLine => {
                         vim::handle_vim_keys(state, c, tx_action).await;
                     }
                     InputMode::Insert | InputMode::Command | InputMode::Search => {
