@@ -77,41 +77,39 @@ pub async fn handle_input_events(
             _ = time::sleep(Duration::from_millis(10)) => {
                 if event::poll(Duration::from_millis(0))? {
                     match event::read()? {
-                        event::Event::Key(key) => {
-                            if key.kind == KeyEventKind::Press {
-                                if key.code == KeyCode::Char('c') && key.modifiers.contains(event::KeyModifiers::CONTROL) {
-                                    tx.send(AppAction::SigInt).await.ok();
-                                } else {
-                                    match key.code {
-                                        KeyCode::Esc => {
-                                            tx.send(AppAction::InputEscape).await.ok();
-                                        }
-                                        KeyCode::Enter => {
-                                            tx.send(AppAction::InputSubmit).await.ok();
-                                        }
-                                        KeyCode::Backspace => {
-                                            tx.send(AppAction::InputBackspace).await.ok();
-                                        }
-                                        KeyCode::Delete => {
-                                            tx.send(AppAction::InputDelete).await.ok();
-                                        }
-                                        KeyCode::Up => {
-                                            tx.send(AppAction::SelectPrevious).await.ok();
-                                        }
-                                        KeyCode::Down => {
-                                            tx.send(AppAction::SelectNext).await.ok();
-                                        }
-                                        KeyCode::Left => {
-                                            tx.send(AppAction::SelectLeft).await.ok();
-                                        }
-                                        KeyCode::Right => {
-                                            tx.send(AppAction::SelectRight).await.ok();
-                                        }
-                                        KeyCode::Char(c) => {
-                                            tx.send(AppAction::InputChar(c)).await.ok();
-                                        }
-                                        _ => {}
+                        event::Event::Key(key) if key.kind == KeyEventKind::Press => {
+                            if key.code == KeyCode::Char('c') && key.modifiers.contains(event::KeyModifiers::CONTROL) {
+                                tx.send(AppAction::SigInt).await.ok();
+                            } else {
+                                match key.code {
+                                    KeyCode::Esc => {
+                                        tx.send(AppAction::InputEscape).await.ok();
                                     }
+                                    KeyCode::Enter => {
+                                        tx.send(AppAction::InputSubmit).await.ok();
+                                    }
+                                    KeyCode::Backspace => {
+                                        tx.send(AppAction::InputBackspace).await.ok();
+                                    }
+                                    KeyCode::Delete => {
+                                        tx.send(AppAction::InputDelete).await.ok();
+                                    }
+                                    KeyCode::Up => {
+                                        tx.send(AppAction::SelectPrevious).await.ok();
+                                    }
+                                    KeyCode::Down => {
+                                        tx.send(AppAction::SelectNext).await.ok();
+                                    }
+                                    KeyCode::Left => {
+                                        tx.send(AppAction::SelectLeft).await.ok();
+                                    }
+                                    KeyCode::Right => {
+                                        tx.send(AppAction::SelectRight).await.ok();
+                                    }
+                                    KeyCode::Char(c) => {
+                                        tx.send(AppAction::InputChar(c)).await.ok();
+                                    }
+                                    _ => {}
                                 }
                             }
                         }
@@ -668,105 +666,97 @@ async fn move_selection(state: &mut MutexGuard<'_, App>, n: i32, total_filtered_
                 state.selection_index = (state.selection_index + n.unsigned_abs() as usize) % 3;
             }
         }
-        AppState::SelectingDM => {
-            if !state.dms.is_empty() {
-                if n < 0 {
-                    state.selection_index = if state.selection_index == 0 {
-                        state.dms.len() - n.unsigned_abs() as usize
-                    } else {
-                        state.selection_index - n.unsigned_abs() as usize
-                    };
+        AppState::SelectingDM if !state.dms.is_empty() => {
+            if n < 0 {
+                state.selection_index = if state.selection_index == 0 {
+                    state.dms.len() - n.unsigned_abs() as usize
                 } else {
-                    state.selection_index =
-                        (state.selection_index + n.unsigned_abs() as usize) % state.dms.len();
-                }
-            }
-        }
-        AppState::SelectingGuild => {
-            if !state.guilds.is_empty() {
-                if n < 0 {
-                    state.selection_index = if state.selection_index == 0 {
-                        state.guilds.len() - n.unsigned_abs() as usize
-                    } else {
-                        state.selection_index - n.unsigned_abs() as usize
-                    };
-                } else {
-                    state.selection_index =
-                        (state.selection_index + n.unsigned_abs() as usize) % state.guilds.len();
-                }
-            }
-        }
-        AppState::SelectingChannel(_) => {
-            if !state.channels.is_empty() {
-                let filter_text = state.search_input.to_lowercase();
-                let permission_context = &state.context;
-
-                let should_display_content = |c: &Channel| {
-                    let is_readable = permission_context
-                        .as_ref()
-                        .is_some_and(|context| c.is_readable(context));
-
-                    is_readable
-                        && (filter_text.is_empty() || c.name.to_lowercase().contains(&filter_text))
+                    state.selection_index - n.unsigned_abs() as usize
                 };
-
-                let len: usize = state
-                    .channels
-                    .iter()
-                    .flat_map(|c| {
-                        if c.channel_type == 4 {
-                            let mut list_items_to_render: Vec<&Channel> = Vec::new();
-
-                            let name_matches = filter_text.is_empty()
-                                || c.name.to_lowercase().contains(&filter_text);
-
-                            let child_matches = c.children.as_ref().is_some_and(|children| {
-                                children.iter().any(should_display_content)
-                            });
-
-                            if name_matches || child_matches {
-                                list_items_to_render.push(c);
-
-                                if let Some(children) = &c.children {
-                                    list_items_to_render.extend(
-                                        children
-                                            .iter()
-                                            .filter(|child| should_display_content(child)),
-                                    );
-                                }
-                            }
-                            list_items_to_render
-                        } else if should_display_content(c) {
-                            vec![c]
-                        } else {
-                            vec![]
-                        }
-                    })
-                    .count();
-
-                if n < 0 {
-                    state.selection_index = if state.selection_index == 0 {
-                        len - n.unsigned_abs() as usize
-                    } else {
-                        state.selection_index - n.unsigned_abs() as usize
-                    };
-                } else {
-                    state.selection_index =
-                        (state.selection_index + n.unsigned_abs() as usize) % len;
-                }
+            } else {
+                state.selection_index =
+                    (state.selection_index + n.unsigned_abs() as usize) % state.dms.len();
             }
         }
-        AppState::EmojiSelection(_) => {
-            if total_filtered_emojis > 0 {
-                if n < 0 {
-                    state.emoji_index = if state.emoji_index == 0 {
-                        total_filtered_emojis - 1
-                    } else {
-                        state.emoji_index - 1
-                    };
+        AppState::SelectingGuild if !state.guilds.is_empty() => {
+            if n < 0 {
+                state.selection_index = if state.selection_index == 0 {
+                    state.guilds.len() - n.unsigned_abs() as usize
                 } else {
-                    state.emoji_index = (state.emoji_index + 1) % total_filtered_emojis;
-                }
+                    state.selection_index - n.unsigned_abs() as usize
+                };
+            } else {
+                state.selection_index =
+                    (state.selection_index + n.unsigned_abs() as usize) % state.guilds.len();
+            }
+        }
+        AppState::SelectingChannel(_) if !state.channels.is_empty() => {
+            let filter_text = state.search_input.to_lowercase();
+            let permission_context = &state.context;
+
+            let should_display_content = |c: &Channel| {
+                let is_readable = permission_context
+                    .as_ref()
+                    .is_some_and(|context| c.is_readable(context));
+
+                is_readable
+                    && (filter_text.is_empty() || c.name.to_lowercase().contains(&filter_text))
+            };
+
+            let len: usize = state
+                .channels
+                .iter()
+                .flat_map(|c| {
+                    if c.channel_type == 4 {
+                        let mut list_items_to_render: Vec<&Channel> = Vec::new();
+
+                        let name_matches = filter_text.is_empty()
+                            || c.name.to_lowercase().contains(&filter_text);
+
+                        let child_matches = c.children.as_ref().is_some_and(|children| {
+                            children.iter().any(should_display_content)
+                        });
+
+                        if name_matches || child_matches {
+                            list_items_to_render.push(c);
+
+                            if let Some(children) = &c.children {
+                                list_items_to_render.extend(
+                                    children
+                                        .iter()
+                                        .filter(|child| should_display_content(child)),
+                                );
+                            }
+                        }
+                        list_items_to_render
+                    } else if should_display_content(c) {
+                        vec![c]
+                    } else {
+                        vec![]
+                    }
+                })
+                .count();
+
+            if n < 0 {
+                state.selection_index = if state.selection_index == 0 {
+                    len - n.unsigned_abs() as usize
+                } else {
+                    state.selection_index - n.unsigned_abs() as usize
+                };
+            } else {
+                state.selection_index =
+                    (state.selection_index + n.unsigned_abs() as usize) % len;
+            }
+        }
+        AppState::EmojiSelection(_) if total_filtered_emojis > 0 => {
+            if n < 0 {
+                state.emoji_index = if state.emoji_index == 0 {
+                    total_filtered_emojis - 1
+                } else {
+                    state.emoji_index - 1
+                };
+            } else {
+                state.emoji_index = (state.emoji_index + 1) % total_filtered_emojis;
             }
         }
         _ => {}

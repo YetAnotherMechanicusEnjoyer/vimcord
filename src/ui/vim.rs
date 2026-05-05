@@ -916,9 +916,9 @@ pub async fn handle_vim_keys(
                 let yanked = vim_state.yank_buffer.clone();
                 if !yanked.is_empty() {
                     let mut pos = state.cursor_position;
-                    if yanked.starts_with('\n') {
+                    if let Some(stripped) = yanked.strip_prefix('\n') {
                         pos = state.input[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
-                        let to_insert = format!("{}\n", &yanked[1..]);
+                        let to_insert = format!("{}\n", stripped);
                         state.input.insert_str(pos, &to_insert);
                         state.cursor_position = pos;
                     } else {
